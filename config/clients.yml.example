@@ -1,0 +1,32 @@
+# Copie este arquivo para clients.yml e preencha com suas credenciais
+# cp config/clients.yml.example config/clients.yml
+#
+# Variáveis de ambiente: use ${VAR_NAME} para não expor credenciais
+
+minha-empresa:
+  system: ixc
+  schema_name: public
+  postgres_dsn: "${EMPRESA_POSTGRES_DSN}"
+  duckdb_path: "/tmp/etl-staging/minha-empresa.duckdb"
+  api:
+    base_url: "${EMPRESA_API_BASE_URL}"
+    token: "${EMPRESA_API_TOKEN}"
+    max_retries: 3
+    timeout_s: 60
+    backoff_factor: 0.5
+  endpoints:
+    - name: clientes
+      api_endpoint: cliente
+      strategy: full
+      page_size: 5000
+
+    - name: contratos
+      api_endpoint: cliente_contrato
+      strategy: full
+      page_size: 5000
+
+    - name: titulos
+      api_endpoint: fn_areceber
+      strategy: delta
+      pk_column: id
+      page_size: 5000

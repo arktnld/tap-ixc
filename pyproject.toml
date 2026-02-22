@@ -1,0 +1,29 @@
+[project]
+name = "tap-ixc"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "stamina>=24.2",
+    "pybreaker>=1.2",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "duckdb>=1.0",
+    "structlog>=24.1",
+    "psycopg[binary]>=3.1",
+    "pyyaml>=6.0",
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
+]
+
+[project.scripts]
+tap-ixc = "tap_ixc.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

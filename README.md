@@ -1,13 +1,6 @@
 # tap-ixc
 
-[![PyPI version](https://img.shields.io/pypi/v/tap-ixc.svg)](https://pypi.org/project/tap-ixc/)
-[![Python](https://img.shields.io/pypi/pyversions/tap-ixc.svg)](https://pypi.org/project/tap-ixc/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/seu-user/tap-ixc/actions/workflows/ci.yml/badge.svg)](https://github.com/seu-user/tap-ixc/actions)
-
-Lib Python para sincronizar dados de APIs **IXC Provedor** para PostgreSQL.
-
-Inspirada no [Singer SDK](https://sdk.meltano.com) — checkpointing por stage, observabilidade nativa e paginação automática.
+Lib Python para sincronizar dados da API  do **IXC** para PostgreSQL.
 
 ## Instalação
 
@@ -17,7 +10,7 @@ pip install tap-ixc
 
 ## Uso rápido
 
-### Via Python (integração com plataforma low-code)
+### Via Python 
 
 ```python
 from tap_ixc.tap import IXCTap, Destination
@@ -45,7 +38,7 @@ results = tap.sync(destination, catalog.select("clientes"))
 # → [TapResult(stream="clientes", records_loaded=12132, status="success")]
 ```
 
-### Via CLI (cron / agendamento)
+### Via CLI 
 
 ```bash
 # Configura variáveis de ambiente
@@ -65,7 +58,7 @@ tap-ixc list                    # lista clientes configurados
 tap-ixc status                  # últimos 20 runs
 ```
 
-## Configuração (`config/clients.yml`)
+## Configuração 
 
 ```yaml
 minha-empresa:
@@ -95,25 +88,14 @@ minha-empresa:
 
 ## Streams disponíveis
 
-| Stream | Endpoint IXC | Modo padrão |
-|---|---|---|
-| `clientes` | `cliente` | INCREMENTAL |
-| `contratos` | `cliente_contrato` | FULL |
-| `titulos` | `fn_areceber` | INCREMENTAL |
+Todos os streams suportam `strategy: full` e `strategy: delta` — você configura por endpoint no `clients.yml`.
 
-## Adicionando um novo stream
+| Stream | Endpoint IXC |
+|---|---|
+| `clientes` | `cliente` |
+| `contratos` | `cliente_contrato` |
+| `titulos` | `fn_areceber` |
 
-```python
-# tap_ixc/streams/meu_stream.py
-from tap_ixc.streams.base import Stream
-
-class MeuStream(Stream):
-    name = "meu_stream"
-    api_endpoint = "nome_endpoint_ixc"
-    replication_key = "data_alteracao"  # None para FULL apenas
-```
-
-Registre em `tap_ixc/streams/__init__.py` e pronto — paginação, retry e checkpoint são automáticos.
 
 ## Monitoramento
 
@@ -129,7 +111,7 @@ Tabelas: `etl.pipeline_runs`, `etl.checkpoints`, `etl.pipeline_events`.
 ## Desenvolvimento
 
 ```bash
-git clone https://github.com/seu-user/tap-ixc
+git clone https://github.com/arktnld/tap-ixc
 cd tap-ixc
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"

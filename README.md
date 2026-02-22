@@ -5,7 +5,15 @@ Lib Python para sincronizar dados da API  do **IXC** para PostgreSQL.
 ## Instalação
 
 ```bash
-pip install tap-ixc
+pip install git+https://github.com/arktnld/tap-ixc.git
+```
+
+Para desenvolvimento local:
+
+```bash
+git clone https://github.com/arktnld/tap-ixc
+cd tap-ixc
+pip install -e ".[dev]"
 ```
 
 ## Uso rápido
@@ -110,16 +118,6 @@ psql $ETL_MONITOR_DSN -f docs/schema.sql
 ```
 
 Tabelas criadas: `pipeline_runs`, `checkpoints`, `pipeline_events`.
-
-## Desenvolvimento
-
-```bash
-git clone https://github.com/arktnld/tap-ixc
-cd tap-ixc
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-pytest tests/ -v
-```
 
 ## Licença
 

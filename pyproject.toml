@@ -1,7 +1,18 @@
 [project]
 name = "tap-ixc"
 version = "0.1.0"
+description = "Lib Python para sincronizar dados da API IXC Provedor para PostgreSQL"
+readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.12"
+keywords = ["ixc", "ixcsoft", "ixc-provedor", "etl", "postgresql", "data-pipeline", "isp", "provedor-internet", "singer", "duckdb"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Database",
+    "Topic :: Internet",
+]
 dependencies = [
     "httpx>=0.27",
     "stamina>=24.2",

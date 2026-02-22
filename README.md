@@ -1,6 +1,8 @@
 # tap-ixc
 
-Lib Python para sincronizar dados da API  do **IXC** para PostgreSQL.
+Lib Python para sincronizar dados da **API IXC Provedor** para PostgreSQL.
+
+Extrai dados de provedores de internet que usam o sistema **IXC Soft** — clientes, contratos, títulos financeiros — e carrega direto no seu banco de dados com checkpointing por stage, retry automático e observabilidade nativa.
 
 ## Instalação
 

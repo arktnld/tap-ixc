@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     monitor_dsn: str = Field(
         default="postgresql://etl:etl@localhost:5432/etl_monitor",
     )
+    monitor_schema: str = Field(default="etl")
     clients_yml: Path = Path(__file__).parent.parent.parent / "config" / "clients.yml"
 
 

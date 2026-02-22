@@ -112,8 +112,8 @@ class IXCTap:
         client_id  → identificador gravado nos logs de observabilidade.
         """
         settings = Settings()
-        checkpoint = Checkpoint(settings.monitor_dsn)
-        events = EventStore(settings.monitor_dsn)
+        checkpoint = Checkpoint(settings.monitor_dsn, schema=settings.monitor_schema)
+        events = EventStore(settings.monitor_dsn, schema=settings.monitor_schema)
 
         active_catalog = catalog if catalog is not None else self.discover()
         results = []

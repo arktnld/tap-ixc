@@ -1,4 +1,4 @@
-"""CRUD na tabela etl.checkpoints (Postgres)."""
+"""CRUD na tabela de checkpoints (Postgres)."""
 from __future__ import annotations
 
 import json
@@ -11,8 +11,9 @@ log = structlog.get_logger()
 
 
 class Checkpoint:
-    def __init__(self, dsn: str):
+    def __init__(self, dsn: str, schema: str = "etl"):
         self._dsn = dsn
+        self._schema = schema
 
     def mark_done(
         self,
@@ -24,8 +25,8 @@ class Checkpoint:
     ) -> None:
         with psycopg.connect(self._dsn) as conn:
             conn.execute(
-                """
-                INSERT INTO etl.checkpoints (client, pipeline, stage, data_path, metadata)
+                f"""
+                INSERT INTO {self._schema}.checkpoints (client, pipeline, stage, data_path, metadata)
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (client, pipeline)
                 DO UPDATE SET
@@ -41,9 +42,9 @@ class Checkpoint:
     def get_last(self, client: str, pipeline: str) -> dict[str, Any] | None:
         with psycopg.connect(self._dsn) as conn:
             row = conn.execute(
-                """
+                f"""
                 SELECT stage, data_path, metadata
-                FROM etl.checkpoints
+                FROM {self._schema}.checkpoints
                 WHERE client = %s AND pipeline = %s
                 """,
                 (client, pipeline),
@@ -55,7 +56,7 @@ class Checkpoint:
     def clear(self, client: str, pipeline: str) -> None:
         with psycopg.connect(self._dsn) as conn:
             conn.execute(
-                "DELETE FROM etl.checkpoints WHERE client = %s AND pipeline = %s",
+                f"DELETE FROM {self._schema}.checkpoints WHERE client = %s AND pipeline = %s",
                 (client, pipeline),
             )
         log.info("checkpoint.cleared", client=client, pipeline=pipeline)

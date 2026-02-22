@@ -99,14 +99,17 @@ Todos os streams suportam `strategy: full` e `strategy: delta` — você configu
 
 ## Monitoramento
 
-A lib grava automaticamente em um schema `etl` no PostgreSQL:
+A lib grava automaticamente em um schema PostgreSQL dedicado:
 
-```sql
--- Inicializa o schema de monitoramento
+```bash
+export ETL_MONITOR_DSN="postgresql://user:pass@host/db"
+export ETL_MONITOR_SCHEMA="etl"  # opcional, padrão: etl
+
+# Inicializa as tabelas
 psql $ETL_MONITOR_DSN -f docs/schema.sql
 ```
 
-Tabelas: `etl.pipeline_runs`, `etl.checkpoints`, `etl.pipeline_events`.
+Tabelas criadas: `pipeline_runs`, `checkpoints`, `pipeline_events`.
 
 ## Desenvolvimento
 

@@ -138,7 +138,7 @@ def status_cmd(client: str | None) -> None:
             f"""
             SELECT client, pipeline, status, stage,
                    started_at, duration_s, records_out
-            FROM etl.pipeline_runs
+            FROM {settings.monitor_schema}.pipeline_runs
             {where}
             ORDER BY started_at DESC
             LIMIT 20

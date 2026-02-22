@@ -1,4 +1,4 @@
-"""Gravação em etl.pipeline_runs e etl.pipeline_events (Postgres)."""
+"""Gravação em pipeline_runs e pipeline_events (Postgres)."""
 from __future__ import annotations
 
 import json
@@ -11,8 +11,9 @@ log = structlog.get_logger()
 
 
 class EventStore:
-    def __init__(self, dsn: str):
+    def __init__(self, dsn: str, schema: str = "etl"):
         self._dsn = dsn
+        self._schema = schema
 
     def start_run(
         self,
@@ -23,8 +24,8 @@ class EventStore:
     ) -> int:
         with psycopg.connect(self._dsn) as conn:
             row = conn.execute(
-                """
-                INSERT INTO etl.pipeline_runs (client, system, pipeline, status, metadata)
+                f"""
+                INSERT INTO {self._schema}.pipeline_runs (client, system, pipeline, status, metadata)
                 VALUES (%s, %s, %s, 'RUNNING', %s)
                 RETURNING id
                 """,
@@ -46,8 +47,8 @@ class EventStore:
     ) -> None:
         with psycopg.connect(self._dsn) as conn:
             conn.execute(
-                """
-                UPDATE etl.pipeline_runs
+                f"""
+                UPDATE {self._schema}.pipeline_runs
                 SET status      = %s,
                     finished_at = now(),
                     duration_s  = EXTRACT(EPOCH FROM (now() - started_at)),
@@ -72,8 +73,8 @@ class EventStore:
     ) -> None:
         with psycopg.connect(self._dsn) as conn:
             conn.execute(
-                """
-                INSERT INTO etl.pipeline_events
+                f"""
+                INSERT INTO {self._schema}.pipeline_events
                     (run_id, event_type, stage, message, records, metadata)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,

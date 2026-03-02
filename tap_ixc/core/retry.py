@@ -6,6 +6,26 @@ import structlog
 
 log = structlog.get_logger()
 
+
+class _BreakerListener(pybreaker.CircuitBreakerListener):
+    """Loga transições de estado do circuit breaker via structlog."""
+
+    def state_change(
+        self,
+        cb: pybreaker.CircuitBreaker,
+        old_state: pybreaker.CircuitBreakerState | None,
+        new_state: pybreaker.CircuitBreakerState,
+    ) -> None:
+        log.warning(
+            "circuit_breaker.state_change",
+            breaker=cb.name,
+            old=old_state.name if old_state else None,
+            new=new_state.name,
+        )
+
+
+_LISTENER = _BreakerListener()
+
 # Registry global: um breaker por endpoint
 _breakers: dict[str, pybreaker.CircuitBreaker] = {}
 
@@ -21,6 +41,7 @@ def get_circuit_breaker(
             fail_max=fail_max,
             reset_timeout=reset_timeout,
             name=endpoint,
+            listeners=[_LISTENER],
         )
     return _breakers[endpoint]
 

@@ -62,6 +62,9 @@ class IXCClient:
         timeout_s: int = 60,
         max_retries: int = 5,
         backoff_factor: float = 0.5,
+        wait_jitter: float = 1.0,
+        session_renewal_every: int = 0,
+        rate_limit_sleep: float = 0.0,
     ) -> None:
         encoded = base64.b64encode(token.encode()).decode()
         self._base_url = base_url.rstrip("/")
@@ -70,9 +73,9 @@ class IXCClient:
         self._timeout_s = timeout_s
         self._max_retries = max_retries
         self._backoff_factor = backoff_factor
-        self._wait_jitter = 1.0
-        self._session_renewal_every = 0
-        self._rate_limit_sleep = 0.0
+        self._wait_jitter = wait_jitter
+        self._session_renewal_every = session_renewal_every
+        self._rate_limit_sleep = rate_limit_sleep
 
     def _headers(self) -> dict[str, str]:
         return {

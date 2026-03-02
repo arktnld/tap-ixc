@@ -17,6 +17,9 @@ class ApiConfig(BaseModel):
     max_retries: int = 3
     backoff_factor: float = 0.5
     timeout_s: int = 60
+    wait_jitter: float = 1.0           # jitter no backoff (anti-thundering-herd)
+    session_renewal_every: int = 0     # recriar sessão a cada N páginas (0 = desligado)
+    rate_limit_sleep: float = 0.0      # pausa entre páginas em segundos (0 = desligado)
 
 
 class EndpointConfig(BaseModel):

@@ -73,6 +73,9 @@ class IXCTap:
             max_retries=config.max_retries,
             timeout_s=config.timeout_s,
             backoff_factor=config.backoff_factor,
+            wait_jitter=config.wait_jitter,
+            session_renewal_every=config.session_renewal_every,
+            rate_limit_sleep=config.rate_limit_sleep,
         )
 
     def check_connection(self) -> tuple[bool, str | None]:

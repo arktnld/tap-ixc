@@ -333,3 +333,29 @@ class TestFetchPage:
                 with pytest.raises(httpx.ReadTimeout):
                     client._fetch_page(mock_http, "cliente", {})
                 mock_time.sleep.assert_called_with(2.0)  # 0.5 * 4
+
+
+class TestIXCClientParams:
+    def test_wait_jitter_param_accepted(self):
+        client = IXCClient(
+            base_url="https://api.example.com/webservice/v1",
+            token="user:token",
+            wait_jitter=2.0,
+        )
+        assert client._wait_jitter == 2.0
+
+    def test_session_renewal_every_param_accepted(self):
+        client = IXCClient(
+            base_url="https://api.example.com/webservice/v1",
+            token="user:token",
+            session_renewal_every=50,
+        )
+        assert client._session_renewal_every == 50
+
+    def test_rate_limit_sleep_param_accepted(self):
+        client = IXCClient(
+            base_url="https://api.example.com/webservice/v1",
+            token="user:token",
+            rate_limit_sleep=0.5,
+        )
+        assert client._rate_limit_sleep == 0.5

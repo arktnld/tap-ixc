@@ -8,6 +8,13 @@ from tap_ixc.config.settings import ApiConfig
 from tap_ixc.tap import Destination, IXCTap
 
 
+def test_api_config_new_fields_have_defaults():
+    cfg = ApiConfig(base_url="http://x", token="t")
+    assert cfg.wait_jitter == 1.0
+    assert cfg.session_renewal_every == 0
+    assert cfg.rate_limit_sleep == 0.0
+
+
 def _make_tap() -> IXCTap:
     return IXCTap(ApiConfig(
         base_url="https://api.example.com/webservice/v1",

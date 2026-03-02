@@ -1,12 +1,13 @@
 """Testes para IXCClient — paginação, params, check_connection."""
 from __future__ import annotations
 
-from unittest.mock import patch
+import json
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 
-from tap_ixc.extractors.api import IXCClient, _midnight_yesterday_sp
+from tap_ixc.extractors.api import IXCClient, _PermanentHTTPError, _midnight_yesterday_sp
 
 
 class TestMidnightYesterdaySP:
@@ -67,7 +68,8 @@ class TestPaginate:
 
     def test_single_page(self):
         page = self._page([{"id": "1"}, {"id": "2"}], 2)
-        with patch.object(self.client, "_fetch_page", return_value=page):
+        with patch("tap_ixc.extractors.api.httpx.Client"), \
+             patch.object(self.client, "_fetch_page", return_value=page):
             results = list(self.client.paginate("cliente", strategy="full"))
         assert len(results) == 2
 
@@ -76,13 +78,15 @@ class TestPaginate:
             self._page([{"id": "1"}, {"id": "2"}], 4),
             self._page([{"id": "3"}, {"id": "4"}], 4),
         ]
-        with patch.object(self.client, "_fetch_page", side_effect=pages):
+        with patch("tap_ixc.extractors.api.httpx.Client"), \
+             patch.object(self.client, "_fetch_page", side_effect=pages):
             results = list(self.client.paginate("cliente", strategy="full"))
         assert len(results) == 4
 
     def test_empty_response_stops(self):
         page = self._page([], 0)
-        with patch.object(self.client, "_fetch_page", return_value=page):
+        with patch("tap_ixc.extractors.api.httpx.Client"), \
+             patch.object(self.client, "_fetch_page", return_value=page):
             results = list(self.client.paginate("cliente", strategy="full"))
         assert results == []
 
@@ -92,14 +96,16 @@ class TestPaginate:
             self._page([{"id": "1"}, {"id": "2"}], 3),
             self._page([{"id": "3"}], 3),
         ]
-        with patch.object(self.client, "_fetch_page", side_effect=pages) as mock_fetch:
+        with patch("tap_ixc.extractors.api.httpx.Client"), \
+             patch.object(self.client, "_fetch_page", side_effect=pages) as mock_fetch:
             results = list(self.client.paginate("cliente", strategy="full", page_size=2))
         assert len(results) == 3
         assert mock_fetch.call_count == 2
 
     def test_custom_page_size(self):
         page = self._page([{"id": "1"}], 1)
-        with patch.object(self.client, "_fetch_page", return_value=page) as mock_fetch:
+        with patch("tap_ixc.extractors.api.httpx.Client"), \
+             patch.object(self.client, "_fetch_page", return_value=page) as mock_fetch:
             list(self.client.paginate("cliente", strategy="full", page_size=999))
         call_params = mock_fetch.call_args[0][2]
         assert call_params["rp"] == "999"
@@ -110,7 +116,8 @@ class TestPaginate:
             {"registros": [{"id": "1"}], "total": ""},
             {"registros": [], "total": ""},
         ]
-        with patch.object(self.client, "_fetch_page", side_effect=pages):
+        with patch("tap_ixc.extractors.api.httpx.Client"), \
+             patch.object(self.client, "_fetch_page", side_effect=pages):
             results = list(self.client.paginate("cliente", strategy="full"))
         assert len(results) == 1
 
@@ -121,7 +128,8 @@ class TestCheckConnection:
             base_url="https://api.example.com/webservice/v1",
             token="user:token",
         )
-        with patch.object(client, "_fetch_page", return_value={"registros": [], "total": "0"}):
+        with patch("tap_ixc.extractors.api.httpx.Client"), \
+             patch.object(client, "_fetch_page", return_value={"registros": [], "total": "0"}):
             ok, err = client.check_connection()
         assert ok is True
         assert err is None
@@ -131,7 +139,143 @@ class TestCheckConnection:
             base_url="https://api.example.com/webservice/v1",
             token="user:token",
         )
-        with patch.object(client, "_fetch_page", side_effect=httpx.ConnectError("timeout")):
+        with patch("tap_ixc.extractors.api.httpx.Client"), \
+             patch.object(client, "_fetch_page", side_effect=httpx.ConnectError("timeout")):
             ok, err = client.check_connection()
         assert ok is False
+        assert err is not None
         assert "timeout" in err
+
+
+class TestFetchPage:
+    """Testa _fetch_page diretamente — comportamento de erro por status code."""
+
+    def _make_client(self, **kwargs):
+        defaults = {
+            "max_retries": 3,
+            "backoff_factor": 0.01,  # testes rápidos
+        }
+        defaults.update(kwargs)
+        return IXCClient(
+            base_url="https://api.example.com/webservice/v1",
+            token="user:token",
+            **defaults,
+        )
+
+    def _mock_response(self, status_code: int, json_data=None, text="", headers=None):
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.text = text
+        resp.headers = headers or {}
+        if json_data is not None:
+            resp.json.return_value = json_data
+        else:
+            resp.json.side_effect = json.JSONDecodeError("err", "", 0)
+        if status_code >= 400:
+            resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+                f"HTTP {status_code}", request=MagicMock(), response=resp
+            )
+        else:
+            resp.raise_for_status.return_value = None
+        return resp
+
+    def test_401_raises_permanent_no_retry(self):
+        client = self._make_client()
+        resp = self._mock_response(401, text="Unauthorized")
+        mock_http = MagicMock()
+        mock_breaker = MagicMock()
+        mock_breaker.call.return_value = resp
+
+        with patch("tap_ixc.extractors.api.get_circuit_breaker", return_value=mock_breaker):
+            with pytest.raises(_PermanentHTTPError) as exc_info:
+                client._fetch_page(mock_http, "cliente", {})
+
+        assert exc_info.value.status_code == 401
+        assert mock_breaker.call.call_count == 1  # sem retry
+
+    def test_403_raises_permanent_no_retry(self):
+        client = self._make_client()
+        resp = self._mock_response(403, text="Forbidden")
+        mock_http = MagicMock()
+        mock_breaker = MagicMock()
+        mock_breaker.call.return_value = resp
+
+        with patch("tap_ixc.extractors.api.get_circuit_breaker", return_value=mock_breaker):
+            with pytest.raises(_PermanentHTTPError) as exc_info:
+                client._fetch_page(mock_http, "cliente", {})
+
+        assert exc_info.value.status_code == 403
+        assert mock_breaker.call.call_count == 1  # sem retry
+
+    def test_404_raises_permanent_no_retry(self):
+        client = self._make_client()
+        resp = self._mock_response(404, text="Not Found")
+        mock_http = MagicMock()
+        mock_breaker = MagicMock()
+        mock_breaker.call.return_value = resp
+
+        with patch("tap_ixc.extractors.api.get_circuit_breaker", return_value=mock_breaker):
+            with pytest.raises(_PermanentHTTPError) as exc_info:
+                client._fetch_page(mock_http, "cliente", {})
+
+        assert exc_info.value.status_code == 404
+        assert mock_breaker.call.call_count == 1  # sem retry
+
+    def test_json_decode_error_retried(self):
+        """JSON inválido deve ser retried (RemoteProtocolError)."""
+        client = self._make_client(max_retries=2)
+        resp = self._mock_response(200, json_data=None)  # json() levanta JSONDecodeError
+        mock_http = MagicMock()
+        mock_breaker = MagicMock()
+        mock_breaker.call.return_value = resp
+
+        with patch("tap_ixc.extractors.api.get_circuit_breaker", return_value=mock_breaker):
+            with pytest.raises(httpx.RemoteProtocolError):
+                client._fetch_page(mock_http, "cliente", {})
+
+        assert mock_breaker.call.call_count == 2  # retried até max_retries
+
+    def test_api_error_type_raises_permanent(self):
+        """Resposta {'type': 'error', 'message': '...'} é permanente, sem retry."""
+        client = self._make_client()
+        resp = self._mock_response(200, json_data={"type": "error", "message": "endpoint inválido"})
+        mock_http = MagicMock()
+        mock_breaker = MagicMock()
+        mock_breaker.call.return_value = resp
+
+        with patch("tap_ixc.extractors.api.get_circuit_breaker", return_value=mock_breaker):
+            with pytest.raises(_PermanentHTTPError) as exc_info:
+                client._fetch_page(mock_http, "cliente", {})
+
+        assert "endpoint inválido" in str(exc_info.value)
+        assert mock_breaker.call.call_count == 1  # sem retry
+
+    def test_500_is_retried(self):
+        """5xx deve sofrer retry."""
+        client = self._make_client(max_retries=2)
+        resp = self._mock_response(500)
+        resp.json.side_effect = None
+        resp.json.return_value = {}
+        mock_http = MagicMock()
+        mock_breaker = MagicMock()
+        mock_breaker.call.return_value = resp
+
+        with patch("tap_ixc.extractors.api.get_circuit_breaker", return_value=mock_breaker):
+            with pytest.raises(httpx.HTTPStatusError):
+                client._fetch_page(mock_http, "cliente", {})
+
+        assert mock_breaker.call.call_count == 2  # retried
+
+    def test_circuit_breaker_error_not_retried(self):
+        """CircuitBreakerError não deve sofrer retry — propaga imediatamente."""
+        import pybreaker
+        client = self._make_client(max_retries=3)
+        mock_http = MagicMock()
+        mock_breaker = MagicMock()
+        mock_breaker.call.side_effect = pybreaker.CircuitBreakerError("open")
+
+        with patch("tap_ixc.extractors.api.get_circuit_breaker", return_value=mock_breaker):
+            with pytest.raises(pybreaker.CircuitBreakerError):
+                client._fetch_page(mock_http, "cliente", {})
+
+        assert mock_breaker.call.call_count == 1  # sem retry

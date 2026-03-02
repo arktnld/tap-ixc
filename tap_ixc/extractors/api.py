@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import datetime, time, timedelta
+import time
+from datetime import datetime, timedelta
 from typing import Any, Iterator
 
 try:
@@ -16,13 +17,20 @@ except ImportError:
     ZoneInfo = None  # type: ignore[assignment]
 
 import httpx
-import pybreaker
 import stamina
 import structlog
 
 from tap_ixc.core.retry import get_circuit_breaker
 
 log = structlog.get_logger()
+
+
+class _PermanentHTTPError(Exception):
+    """Erro HTTP permanente que não deve sofrer retry (4xx não transiente)."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _midnight_yesterday_sp() -> str:
@@ -34,7 +42,7 @@ def _midnight_yesterday_sp() -> str:
             pass
     now = datetime.now(tz) if tz else datetime.now()
     yday = now.date() - timedelta(days=1)
-    dt = datetime.combine(yday, time(0, 0, 0), tzinfo=tz)
+    dt = datetime(yday.year, yday.month, yday.day, 0, 0, 0, tzinfo=tz)
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -62,6 +70,9 @@ class IXCClient:
         self._timeout_s = timeout_s
         self._max_retries = max_retries
         self._backoff_factor = backoff_factor
+        self._wait_jitter = 1.0
+        self._session_renewal_every = 0
+        self._rate_limit_sleep = 0.0
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -111,10 +122,16 @@ class IXCClient:
         payload = json.dumps(params)
 
         @stamina.retry(
-            on=(httpx.HTTPError, httpx.RequestError, pybreaker.CircuitBreakerError),
+            on=(
+                httpx.TimeoutException,      # ConnectTimeout, ReadTimeout, WriteTimeout, PoolTimeout
+                httpx.NetworkError,          # ConnectError (SSL), ReadError, WriteError
+                httpx.RemoteProtocolError,   # resposta malformada, JSON inválido (wrappado abaixo)
+                httpx.HTTPStatusError,       # 5xx (4xx filtrados antes de raise_for_status)
+            ),
             attempts=self._max_retries,
             wait_initial=self._backoff_factor,
             wait_max=self._backoff_factor * 60,
+            wait_jitter=self._wait_jitter,
         )
         def _do() -> dict[str, Any]:
             resp = breaker.call(
@@ -125,10 +142,29 @@ class IXCClient:
                 headers=self._headers(),
                 timeout=self._timeout_s,
             )
+            # Erros permanentes — não sofrem retry
+            if resp.status_code in {400, 401, 403, 404}:
+                raise _PermanentHTTPError(
+                    resp.status_code,
+                    f"HTTP {resp.status_code}: {resp.text[:200]}",
+                )
+            # 429 — rate limit: respeitar Retry-After do servidor
+            if resp.status_code == 429:
+                retry_after = float(resp.headers.get("Retry-After", self._backoff_factor * 4))
+                time.sleep(retry_after)
+                raise httpx.ReadTimeout(f"Rate limited (429), aguardou {retry_after:.1f}s")
+            # 5xx e outros 4xx → raise_for_status → HTTPStatusError → retry
             resp.raise_for_status()
-            data = resp.json()
+            # JSON inválido → RemoteProtocolError → retry
+            try:
+                data = resp.json()
+            except json.JSONDecodeError as exc:
+                raise httpx.RemoteProtocolError(
+                    f"JSON inválido (endpoint={endpoint}): {exc}"
+                ) from exc
+            # Erro de negócio da API → permanente, sem retry
             if isinstance(data, dict) and data.get("type") == "error":
-                raise httpx.HTTPError(f"API error: {data.get('message')}")
+                raise _PermanentHTTPError(0, f"API error: {data.get('message')}")
             return data  # type: ignore[return-value]
 
         return _do()

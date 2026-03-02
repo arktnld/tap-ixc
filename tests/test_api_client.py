@@ -121,6 +121,81 @@ class TestPaginate:
             results = list(self.client.paginate("cliente", strategy="full"))
         assert len(results) == 1
 
+    def test_session_renewal_recreates_client_every_n_pages(self):
+        """session_renewal_every=2: recriar client a cada 2 páginas."""
+        client = IXCClient(
+            base_url="https://api.example.com/webservice/v1",
+            token="user:token",
+            page_size=1,
+            session_renewal_every=2,
+        )
+        pages = [
+            self._page([{"id": "1"}], 3),
+            self._page([{"id": "2"}], 3),
+            self._page([{"id": "3"}], 3),
+        ]
+        with patch.object(client, "_fetch_page", side_effect=pages):
+            with patch("tap_ixc.extractors.api.httpx.Client") as MockClient:
+                MockClient.return_value.close = MagicMock()
+                results = list(client.paginate("cliente"))
+
+        assert len(results) == 3
+        # Client criado inicialmente + recriado na página 2 = 2 criações
+        assert MockClient.call_count == 2
+
+    def test_rate_limit_sleep_called_between_pages(self):
+        """rate_limit_sleep=0.1: time.sleep chamado entre páginas."""
+        client = IXCClient(
+            base_url="https://api.example.com/webservice/v1",
+            token="user:token",
+            page_size=1,
+            rate_limit_sleep=0.1,
+        )
+        pages = [
+            self._page([{"id": "1"}], 2),
+            self._page([{"id": "2"}], 2),
+        ]
+        with patch.object(client, "_fetch_page", side_effect=pages):
+            with patch("tap_ixc.extractors.api.httpx.Client"):
+                with patch("tap_ixc.extractors.api.time") as mock_time:
+                    mock_time.monotonic.return_value = 0.0
+                    results = list(client.paginate("cliente"))
+
+        assert len(results) == 2
+        mock_time.sleep.assert_called_with(0.1)
+
+    def test_rate_limit_zero_does_not_sleep(self):
+        """rate_limit_sleep=0.0 (default): sem sleep entre páginas."""
+        pages = [self._page([{"id": "1"}], 1)]
+        with patch.object(self.client, "_fetch_page", side_effect=pages):
+            with patch("tap_ixc.extractors.api.httpx.Client"):
+                with patch("tap_ixc.extractors.api.time") as mock_time:
+                    mock_time.monotonic.return_value = 0.0
+                    list(self.client.paginate("cliente"))
+        mock_time.sleep.assert_not_called()
+
+    def test_eta_logged_with_pct(self):
+        """ETA e pct aparecem no log quando total é conhecido."""
+        pages = [
+            self._page([{"id": "1"}, {"id": "2"}], 4),
+            self._page([{"id": "3"}, {"id": "4"}], 4),
+        ]
+        with patch.object(self.client, "_fetch_page", side_effect=pages):
+            with patch("tap_ixc.extractors.api.httpx.Client"):
+                with patch("tap_ixc.extractors.api.log") as mock_log:
+                    with patch("tap_ixc.extractors.api.time") as mock_time:
+                        mock_time.monotonic.return_value = 1.0
+                        list(self.client.paginate("cliente"))
+
+        page_done_calls = [
+            call for call in mock_log.info.call_args_list
+            if call[0][0] == "client.page_done"
+        ]
+        assert len(page_done_calls) == 2
+        first_call_kwargs = page_done_calls[0][1]
+        assert "pct" in first_call_kwargs
+        assert first_call_kwargs["pct"] == 50.0
+
     def test_ssl_reconnect_recreates_client(self):
         """ConnectError em _fetch_page: fechar client atual e recriar antes de retry."""
         page1 = self._page([{"id": "1"}], 1)

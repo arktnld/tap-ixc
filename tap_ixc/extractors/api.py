@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import time
 from datetime import datetime, timedelta
 from typing import Any, Iterator
@@ -242,10 +243,11 @@ class IXCClient:
                     if (total_api and total_fetched > 0 and total_fetched < total_api)
                     else None
                 )
+                total_pages = math.ceil(total_api / rp) if total_api else None
                 log.info(
                     "client.page_done",
                     endpoint=endpoint,
-                    page=page,
+                    page=f"{page}/{total_pages}" if total_pages else page,
                     fetched=total_fetched,
                     total=total_api,
                     pct=round(pct, 1) if pct is not None else None,

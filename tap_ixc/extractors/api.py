@@ -197,11 +197,27 @@ class IXCClient:
         page = 1
         total_fetched = 0
         rp = page_size if page_size is not None else self._page_size
+        start_time = time.monotonic()
 
-        with httpx.Client() as client:
+        client = httpx.Client()
+        try:
             while True:
                 params = self._build_params(endpoint, page, strategy, incremental_since, rp)
-                response = self._fetch_page(client, endpoint, params)
+
+                # SSL reconnection: recriar sessão ao capturar ConnectError
+                try:
+                    response = self._fetch_page(client, endpoint, params)
+                except httpx.ConnectError:
+                    log.warning("client.ssl_reconnect", endpoint=endpoint, page=page)
+                    client.close()
+                    client = httpx.Client()
+                    response = self._fetch_page(client, endpoint, params)
+
+                # Renovação preventiva de sessão a cada N páginas
+                if self._session_renewal_every and page % self._session_renewal_every == 0:
+                    log.info("client.session_renewed", endpoint=endpoint, page=page)
+                    client.close()
+                    client = httpx.Client()
 
                 records: list[dict[str, Any]] = response.get("registros", []) or []
                 total_raw = response.get("total", "")
@@ -214,17 +230,34 @@ class IXCClient:
                     yield rec
 
                 total_fetched += len(records)
+
+                # ETA logging
+                elapsed = time.monotonic() - start_time
+                pct = (total_fetched / total_api * 100) if total_api else None
+                eta_s = (
+                    elapsed / total_fetched * (total_api - total_fetched)
+                    if (total_api and total_fetched > 0 and total_fetched < total_api)
+                    else None
+                )
                 log.info(
                     "client.page_done",
                     endpoint=endpoint,
                     page=page,
                     fetched=total_fetched,
                     total=total_api,
+                    pct=round(pct, 1) if pct is not None else None,
+                    eta_s=round(eta_s) if eta_s is not None else None,
                 )
 
                 if total_api is not None and total_fetched >= total_api:
                     break
 
+                # Rate limiting entre páginas
+                if self._rate_limit_sleep > 0:
+                    time.sleep(self._rate_limit_sleep)
+
                 page += 1
+        finally:
+            client.close()
 
         log.info("client.done", endpoint=endpoint, total=total_fetched)

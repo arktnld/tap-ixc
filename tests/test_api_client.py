@@ -121,6 +121,26 @@ class TestPaginate:
             results = list(self.client.paginate("cliente", strategy="full"))
         assert len(results) == 1
 
+    def test_ssl_reconnect_recreates_client(self):
+        """ConnectError em _fetch_page: fechar client atual e recriar antes de retry."""
+        page1 = self._page([{"id": "1"}], 1)
+        calls_with_client = []
+
+        def fetch_side_effect(http_client, endpoint, params):
+            calls_with_client.append(id(http_client))
+            if len(calls_with_client) == 1:
+                raise httpx.ConnectError("SSL handshake failed")
+            return page1
+
+        mock_clients = [MagicMock(), MagicMock()]
+        with patch.object(self.client, "_fetch_page", side_effect=fetch_side_effect):
+            with patch("tap_ixc.extractors.api.httpx.Client", side_effect=mock_clients):
+                results = list(self.client.paginate("cliente"))
+
+        assert len(results) == 1
+        assert len(calls_with_client) == 2
+        assert calls_with_client[0] != calls_with_client[1]  # clientes diferentes
+
 
 class TestCheckConnection:
     def test_success(self):

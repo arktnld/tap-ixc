@@ -279,3 +279,37 @@ class TestFetchPage:
                 client._fetch_page(mock_http, "cliente", {})
 
         assert mock_breaker.call.call_count == 1  # sem retry
+
+    def test_429_sleeps_retry_after_header(self):
+        """429 com header Retry-After: deve dormir o valor indicado."""
+        client = self._make_client(max_retries=2)
+        resp = MagicMock()
+        resp.status_code = 429
+        resp.headers = {"Retry-After": "3"}
+        resp.raise_for_status.return_value = None
+        mock_http = MagicMock()
+        mock_breaker = MagicMock()
+        mock_breaker.call.return_value = resp
+
+        with patch("tap_ixc.extractors.api.get_circuit_breaker", return_value=mock_breaker):
+            with patch("tap_ixc.extractors.api.time") as mock_time:
+                with pytest.raises(httpx.ReadTimeout):
+                    client._fetch_page(mock_http, "cliente", {})
+                mock_time.sleep.assert_called_with(3.0)
+
+    def test_429_without_retry_after_uses_default(self):
+        """429 sem header Retry-After: usa backoff_factor * 4 como fallback."""
+        client = self._make_client(max_retries=2, backoff_factor=0.5)
+        resp = MagicMock()
+        resp.status_code = 429
+        resp.headers = {}
+        resp.raise_for_status.return_value = None
+        mock_http = MagicMock()
+        mock_breaker = MagicMock()
+        mock_breaker.call.return_value = resp
+
+        with patch("tap_ixc.extractors.api.get_circuit_breaker", return_value=mock_breaker):
+            with patch("tap_ixc.extractors.api.time") as mock_time:
+                with pytest.raises(httpx.ReadTimeout):
+                    client._fetch_page(mock_http, "cliente", {})
+                mock_time.sleep.assert_called_with(2.0)  # 0.5 * 4

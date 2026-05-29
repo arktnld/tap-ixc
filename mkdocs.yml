@@ -56,6 +56,7 @@ nav:
       - Adicionar um stream: streams.md
       - Sync incremental e validação: incremental-and-validation.md
       - Deploy (Airflow/cron): deployment.md
+      - Troubleshooting: troubleshooting.md
   - Referência:
       - Configuração: configuration.md
       - CLI: cli.md

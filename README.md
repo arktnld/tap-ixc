@@ -224,6 +224,7 @@ Documentação completa em [arktnld.github.io/tap-ixc](https://arktnld.github.io
 - [Configuração](https://arktnld.github.io/tap-ixc/configuration/) e [CLI](https://arktnld.github.io/tap-ixc/cli/)
 - [API Python](https://arktnld.github.io/tap-ixc/python-api/) e [referência da API](https://arktnld.github.io/tap-ixc/api-reference/)
 - [Arquitetura](https://arktnld.github.io/tap-ixc/concepts/)
+- [Troubleshooting](https://arktnld.github.io/tap-ixc/troubleshooting/)
 - [Changelog](https://arktnld.github.io/tap-ixc/changelog/)
 
 ## Licença

@@ -7,13 +7,27 @@
 Biblioteca Python para sincronizar dados da **API IXC Soft** para **PostgreSQL** —
 com checkpointing por stage, retry, circuit breaker e observabilidade nativa.
 
-```python
-from tap_ixc.tap import IXCTap, Destination
-from tap_ixc.config.settings import ApiConfig
+Declare os endpoints que quer no `clients.yml`:
 
-tap = IXCTap(ApiConfig(base_url="https://sua.ixcsoft.com.br/webservice/v1", token="user:token"))
-tap.sync(Destination(postgres_dsn="postgresql://user:pass@host/db",
-                     schema="public", duckdb_path="/tmp/stg.duckdb"))
+```yaml
+minha-empresa:
+  system: ixc
+  schema_name: public
+  postgres_dsn: "postgresql://user:pass@host/db"
+  api:
+    base_url: "https://sua.ixcsoft.com.br/webservice/v1"
+    token: "usuario:token"
+  endpoints:
+    - { name: clientes, api_endpoint: cliente,     strategy: full }
+    - { name: titulos,  api_endpoint: fn_areceber, strategy: delta, pk_column: id }
+```
+
+E sincronize:
+
+```bash
+tap-ixc run minha-empresa
+#   ✓ clientes: 12435 registros
+#   ✓ titulos: 3120 registros
 ```
 
 ## Por que não um script `requests`?

@@ -62,6 +62,34 @@ class EventStore:
             )
         log.info("run.finished", run_id=run_id, status=status, records_out=records_out)
 
+    def write_dead_letters(
+        self,
+        run_id: int,
+        stream: str,
+        dead: list[dict[str, Any]],
+    ) -> None:
+        """Grava linhas reprovadas na validação. dead = [{record, errors}, ...]."""
+        if not dead:
+            return
+        with psycopg.connect(self._dsn) as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    f"""
+                    INSERT INTO {self._schema}.dead_letters (run_id, stream, record, errors)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            run_id,
+                            stream,
+                            json.dumps(d["record"], default=str),
+                            json.dumps(d["errors"], default=str),
+                        )
+                        for d in dead
+                    ],
+                )
+        log.warning("dead_letters.written", run_id=run_id, stream=stream, count=len(dead))
+
     def emit(
         self,
         run_id: int,

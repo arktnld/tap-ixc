@@ -75,3 +75,26 @@ class TestStagingLoader:
         path, _ = loader.load(iter(records))
         data = json.loads(Path(path).read_text().strip())
         assert data["nome"] is None
+
+
+class TestReadAllReplace:
+    def test_read_all_returns_rows(self, tmp_duckdb):
+        loader = StagingLoader(duckdb_path=tmp_duckdb, table="clientes")
+        loader.load(iter([{"id": "1", "nome": "A"}, {"id": "2", "nome": "B"}]))
+        rows = loader.read_all()
+        assert len(rows) == 2
+        assert {r["nome"] for r in rows} == {"A", "B"}
+
+    def test_replace_keeps_only_given_rows(self, tmp_duckdb):
+        loader = StagingLoader(duckdb_path=tmp_duckdb, table="clientes")
+        loader.load(iter([{"id": "1", "nome": "A"}, {"id": "2", "nome": "B"}]))
+        loader.replace([{"id": "1", "nome": "A"}])
+        rows = loader.read_all()
+        assert len(rows) == 1
+        assert rows[0]["nome"] == "A"
+
+    def test_replace_empty_zeroes_table(self, tmp_duckdb):
+        loader = StagingLoader(duckdb_path=tmp_duckdb, table="clientes")
+        loader.load(iter([{"id": "1", "nome": "A"}]))
+        loader.replace([])
+        assert loader.read_all() == []

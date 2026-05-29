@@ -8,6 +8,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Iterator
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     from tap_ixc.catalog import SyncMode
     from tap_ixc.extractors.api import IXCClient
 
@@ -28,6 +30,9 @@ class Stream:
     api_endpoint: str
     primary_keys: list[str] = ["id"]
     replication_key: str | None = None  # campo para sync incremental
+    # Schema pydantic opcional. Se definido, o stage VALIDATE valida cada row
+    # e manda as reprovadas para dead letter (etl.dead_letters). None = só sanitiza.
+    schema: type["BaseModel"] | None = None
 
     def get_records(
         self,

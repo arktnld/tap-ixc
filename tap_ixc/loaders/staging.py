@@ -78,3 +78,37 @@ class StagingLoader:
 
         log.info("staging.loaded", table=self._table, records=total)
         return str(ndjson_path), total
+
+    def read_all(self) -> list[dict[str, Any]]:
+        """Lê todas as linhas da tabela DuckDB como dicts (para validação)."""
+        conn = duckdb.connect(self._duckdb_path)
+        try:
+            cur = conn.execute(f"SELECT * FROM {self._table}")
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def replace(self, rows: list[dict[str, Any]]) -> None:
+        """Reescreve a tabela DuckDB apenas com `rows` (subset pós-validação)."""
+        ndjson_path = self._ndjson_path()
+        with open(ndjson_path, "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False, default=str))
+                f.write("\n")
+
+        conn = duckdb.connect(self._duckdb_path)
+        try:
+            if not rows:
+                # todas reprovadas: zera mantendo o schema da tabela
+                conn.execute(f"DELETE FROM {self._table}")
+            else:
+                glob = str(ndjson_path).replace("\\", "/")
+                conn.execute(
+                    f"CREATE OR REPLACE TABLE {self._table} AS "
+                    f"(SELECT * FROM read_json_auto('{glob}'))"
+                )
+        finally:
+            conn.close()
+
+        log.info("staging.replaced", table=self._table, records=len(rows))

@@ -24,6 +24,7 @@ import structlog
 from tap_ixc.catalog import Catalog, CatalogEntry, SyncMode
 from tap_ixc.config.settings import ApiConfig, Settings
 from tap_ixc.core.checkpoint import Checkpoint
+from tap_ixc.core.contracts import validate_batch
 from tap_ixc.core.events import EventStore
 from tap_ixc.core.pipeline import PipelineContext, PipelineRun, Stage
 from tap_ixc.extractors.api import IXCClient
@@ -199,6 +200,16 @@ class IXCTap:
             if rep_key and cursor["v"] is not None:
                 ctx.set("new_cursor", cursor["v"])
 
+        def validate_stage(ctx: PipelineContext) -> None:
+            # Só roda quando o stream define schema (senão nem é registrado abaixo).
+            rows = staging.read_all()
+            valid, dead = validate_batch(rows, schema=stream.schema)
+            if dead:
+                events.write_dead_letters(ctx.get("run_id"), stream.name, dead)
+                ctx.set("records_dead", len(dead))
+            staging.replace(valid)
+            ctx.set("records_valid", len(valid))
+
         def load_stage(ctx: PipelineContext) -> None:
             ctx.set("records_loaded", pg_loader.load())
 
@@ -220,11 +231,15 @@ class IXCTap:
         )
 
         try:
-            ctx = pipeline.execute({
+            stages = {
                 Stage.EXTRACT: extract_stage,
                 Stage.LOAD: load_stage,
                 Stage.VERIFY: verify_stage,
-            })
+            }
+            if stream.schema is not None:
+                stages[Stage.VALIDATE] = validate_stage
+
+            ctx = pipeline.execute(stages)
             # Avança o cursor SÓ após EXTRACT+LOAD+VERIFY ok. Se LOAD falhar,
             # o cursor não anda e o próximo run rebusca a mesma janela.
             new_cursor = ctx.get("new_cursor")

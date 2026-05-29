@@ -39,5 +39,15 @@ CREATE TABLE etl.pipeline_events (
     metadata    JSONB DEFAULT '{}'
 );
 
+CREATE TABLE etl.dead_letters (
+    id          SERIAL PRIMARY KEY,
+    run_id      INTEGER REFERENCES etl.pipeline_runs(id),
+    stream      TEXT NOT NULL,
+    record      JSONB NOT NULL,
+    errors      JSONB NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX idx_runs_client ON etl.pipeline_runs(client, started_at DESC);
 CREATE INDEX idx_events_run ON etl.pipeline_events(run_id, created_at);
+CREATE INDEX idx_dead_letters_run ON etl.dead_letters(run_id, created_at);

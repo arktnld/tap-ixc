@@ -77,6 +77,7 @@ class PipelineRun:
     def execute(self, stages: dict[Stage, StageFn]) -> PipelineContext:
         ctx = PipelineContext()
         run_id = self._events.start_run(self._client, self._system, self._pipeline)
+        ctx.set("run_id", run_id)
         last_done = self._last_done_stage() if self._from_checkpoint else None
 
         try:

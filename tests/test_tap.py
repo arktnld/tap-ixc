@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from tap_ixc.catalog import SyncMode
 from tap_ixc.config.settings import ApiConfig
+from tap_ixc.streams import ClienteStream
 from tap_ixc.streams.base import Stream
 from tap_ixc.tap import Destination, IXCTap, _advance_cursor
 
@@ -285,3 +286,92 @@ class TestIncrementalCursor:
 
         # primeiro run: sem cursor salvo → since None (client cai no default do IXCClient)
         assert captured["since"] is None
+
+
+class TestValidateStage:
+    """Stage VALIDATE: só roda com schema; reprovadas vão para dead letter."""
+
+    def _consuming_load(self, records):
+        return ("/tmp/x.ndjson", len(list(records)))
+
+    def test_skipped_when_no_schema(self, tmp_path):
+        tap = _make_tap()
+        destination = _make_destination(tmp_path)
+        catalog = tap.discover().select("clientes")
+
+        mock_cp = MagicMock(); mock_cp.get_last.return_value = None
+        mock_ev = MagicMock(); mock_ev.start_run.return_value = 1
+        mock_stg = MagicMock(); mock_stg.load.side_effect = self._consuming_load
+        mock_pg = MagicMock(); mock_pg.load.return_value = 1
+
+        def fake_records(client, sync_mode, since=None, page_size=None):
+            return iter([{"id": 1, "ultima_atualizacao": "2026-05-10 00:00:00"}])
+
+        with (
+            patch("tap_ixc.tap.Settings") as MockSettings,
+            patch("tap_ixc.tap.Checkpoint", return_value=mock_cp),
+            patch("tap_ixc.tap.EventStore", return_value=mock_ev),
+            patch("tap_ixc.tap.StagingLoader", return_value=mock_stg),
+            patch("tap_ixc.tap.PostgresLoader", return_value=mock_pg),
+            patch.object(Stream, "get_records", side_effect=fake_records),
+        ):
+            MockSettings.return_value.monitor_dsn = "postgresql://m"
+            MockSettings.return_value.monitor_schema = "etl"
+            results = tap.sync(destination, catalog)
+
+        assert results[0].status == "success"
+        # sem schema → VALIDATE não roda
+        mock_stg.read_all.assert_not_called()
+        mock_stg.replace.assert_not_called()
+        mock_ev.write_dead_letters.assert_not_called()
+
+    def test_runs_when_schema_present_and_dead_letters_written(self, tmp_path):
+        from pydantic import BaseModel
+
+        class ClienteSchema(BaseModel):
+            id: int
+            nome: str = ""
+
+        tap = _make_tap()
+        destination = _make_destination(tmp_path)
+        catalog = tap.discover().select("clientes")
+
+        mock_cp = MagicMock(); mock_cp.get_last.return_value = None
+        mock_ev = MagicMock(); mock_ev.start_run.return_value = 7
+        mock_stg = MagicMock(); mock_stg.load.side_effect = self._consuming_load
+        # 1 válida, 1 inválida (id não-inteiro)
+        mock_stg.read_all.return_value = [
+            {"id": 1, "nome": "Joao"},
+            {"id": "xx", "nome": "Maria"},
+        ]
+        mock_pg = MagicMock(); mock_pg.load.return_value = 1
+
+        def fake_records(client, sync_mode, since=None, page_size=None):
+            return iter([{"id": 1, "nome": "Joao", "ultima_atualizacao": "2026-05-10 00:00:00"}])
+
+        with (
+            patch("tap_ixc.tap.Settings") as MockSettings,
+            patch("tap_ixc.tap.Checkpoint", return_value=mock_cp),
+            patch("tap_ixc.tap.EventStore", return_value=mock_ev),
+            patch("tap_ixc.tap.StagingLoader", return_value=mock_stg),
+            patch("tap_ixc.tap.PostgresLoader", return_value=mock_pg),
+            patch.object(Stream, "get_records", side_effect=fake_records),
+            patch.object(ClienteStream, "schema", ClienteSchema),
+        ):
+            MockSettings.return_value.monitor_dsn = "postgresql://m"
+            MockSettings.return_value.monitor_schema = "etl"
+            results = tap.sync(destination, catalog)
+
+        assert results[0].status == "success"
+        # dead letter: run_id 7, stream clientes, 1 linha reprovada
+        mock_ev.write_dead_letters.assert_called_once()
+        run_id, stream_name, dead = mock_ev.write_dead_letters.call_args[0]
+        assert run_id == 7
+        assert stream_name == "clientes"
+        assert len(dead) == 1
+        assert dead[0]["record"]["id"] == "xx"
+        # staging.replace recebe só a válida
+        mock_stg.replace.assert_called_once()
+        valid = mock_stg.replace.call_args[0][0]
+        assert len(valid) == 1
+        assert valid[0]["id"] == 1

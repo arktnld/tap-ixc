@@ -1,1 +1,1 @@
-"""ETL Framework — cortex_ai2"""
+"""tap-ixc — sincroniza dados da API IXC Soft para PostgreSQL."""

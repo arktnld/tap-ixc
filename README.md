@@ -29,25 +29,13 @@ results = tap.sync(Destination(postgres_dsn="postgresql://user:pass@host/db", sc
 
 ## Recursos
 
-- 🔄 **Sync incremental por cursor** — baixa só o que mudou desde o último run; pular um dia não perde dados
-- ♻️ **Checkpoint por stage** (EXTRACT → VALIDATE → LOAD → VERIFY) — retoma sem refazer trabalho
-- 🛡️ **Retry + circuit breaker por endpoint** — um endpoint instável não derruba os outros
-- ⚛️ **Load atômico** — `full` (DROP+CREATE) ou `delta` (DELETE+INSERT por PK), sempre via swap transacional
-- 🗑️ **Dead letter por linha** — registros inválidos vão para `etl.dead_letters`, o batch nunca falha inteiro
-- 📊 **Observabilidade nativa** — `pipeline_runs`, `pipeline_events` e `checkpoints` no Postgres
-- 🧩 **Qualquer endpoint IXC** vira um stream em [2 passos](#adicionar-um-stream)
-
-## Índice
-
-- [Instalação](#instalação)
-- [Uso rápido](#uso-rápido)
-- [Configuração](#configuração)
-- [Streams disponíveis](#streams-disponíveis)
-- [Adicionar um stream](#adicionar-um-stream)
-- [Sync incremental e dead letter](#sync-incremental-e-dead-letter)
-- [Agendamento (Airflow / cron)](#agendamento-airflow--cron)
-- [Monitoramento](#monitoramento)
-- [Licença](#licença)
+- **Sync incremental por cursor** — baixa só o que mudou desde o último run; pular um dia não perde dados.
+- **Checkpoint por stage** (EXTRACT → VALIDATE → LOAD → VERIFY) — retoma sem refazer trabalho.
+- **Retry e circuit breaker por endpoint** — um endpoint instável não derruba os outros.
+- **Load atômico** — `full` (DROP+CREATE) ou `delta` (DELETE+INSERT por PK), sempre via swap transacional.
+- **Dead letter por linha** — registros inválidos vão para `etl.dead_letters`; o batch nunca falha inteiro.
+- **Observabilidade nativa** — `pipeline_runs`, `pipeline_events` e `checkpoints` no Postgres.
+- **Qualquer endpoint IXC** vira um stream em [dois passos](#adicionar-um-stream).
 
 ## Instalação
 
@@ -85,8 +73,9 @@ tap-ixc check minha-empresa
 tap-ixc run   minha-empresa       #   ✓ clientes: 12435 registros
 ```
 
-> O passo 2 é obrigatório: `config/clients.yml` não vem no repositório (só o
-> `.example`). Se esquecer, a CLI avisa com o comando exato a rodar.
+> [!IMPORTANT]
+> `config/clients.yml` não vem no repositório (apenas o `.example`). Se esquecer,
+> a CLI avisa com o comando exato a rodar.
 
 **Ligue o incremental** — troque `strategy: full` por `delta` no `clients.yml` e os
 próximos runs baixam só o que mudou (cursor por `ultima_atualizacao`):
@@ -101,7 +90,7 @@ tap-ixc run minha-empresa         #   ✓ clientes: 37 registros (só o que mudo
 0 8 * * * cd /opt/tap-ixc && ETL_MONITOR_DSN="$ETL_MONITOR_DSN" tap-ixc run minha-empresa
 ```
 
-📖 Passo a passo completo (com explicações): **[Tutorial de 10 minutos](https://arktnld.github.io/tap-ixc/tutorial/)**.
+Passo a passo completo, com explicações: [Tutorial de 10 minutos](https://arktnld.github.io/tap-ixc/tutorial/).
 
 ## Uso rápido
 
@@ -145,6 +134,7 @@ tap-ixc list                    # lista clientes configurados
 tap-ixc status                  # últimos 20 runs
 ```
 
+> [!NOTE]
 > `run` sai com código `!= 0` se qualquer stream falhar — seguro para cron e Airflow.
 
 ## Configuração
@@ -176,8 +166,9 @@ minha-empresa:
       pk_column: id
 ```
 
-> Dica: secrets reais (token/DSN de produção) ficam melhor em `${VAR}` — assim
-> não vão pro disco em texto puro. Para dev local, literal é mais prático.
+> [!TIP]
+> Secrets reais (token/DSN de produção) ficam melhor em `${VAR}` — assim não vão
+> pro disco em texto puro. Para dev local, literal é mais prático.
 
 ## Streams disponíveis
 
@@ -228,7 +219,8 @@ baixam registros alterados desde o último run bem-sucedido. O cursor é salvo e
 falhar no meio, o próximo run rebusca a mesma janela, sem perda. Para o backfill
 histórico inicial, rode uma vez com `strategy: full`.
 
-> ⚠️ **Deletes:** o modo incremental só vê inserts/updates (`ultima_atualizacao >=`).
+> [!WARNING]
+> **Deletes:** o modo incremental só vê inserts/updates (`ultima_atualizacao >=`).
 > Um registro *apagado* na origem não é removido do destino. Para reconciliar deletes,
 > rode `strategy: full` periodicamente (ex.: semanal) — `full` recria a tabela e some com os órfãos.
 

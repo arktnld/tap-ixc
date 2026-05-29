@@ -38,6 +38,7 @@ theme:
     - search.highlight
   icon:
     repo: fontawesome/brands/github
+    logo: material/database-sync
 
 extra:
   social:

@@ -51,7 +51,7 @@ def _configure_logging() -> None:
 
 @click.group(cls=_FriendlyGroup)
 def cli() -> None:
-    """ETL Framework IXC — cortex_ai2"""
+    """tap-ixc — sincroniza dados da API IXC Soft para PostgreSQL."""
     _configure_logging()
 
 

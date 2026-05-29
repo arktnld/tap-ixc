@@ -48,23 +48,22 @@ Seguimos o [Diátaxis](https://diataxis.fr): quatro modos, cada um com um propó
 
 </div>
 
-## Por que não um script `requests`?
+## Novo por aqui?
 
-| No mundo real | Script cru | tap-ixc |
-|---|---|---|
-| API caiu na página 800/1000 | recomeça do zero | retry + circuit breaker por endpoint |
-| Run diário pulou um dia | perde dados | cursor incremental retoma do último ponto |
-| Falha no meio do `INSERT` | tabela em prod vazia | swap atômico (staging → COMMIT) |
-| 1 registro corrompido | derruba o batch | dead letter por linha |
-| "Rodou? Quanto faltou?" | nenhuma pista | tabelas `etl.*` de observabilidade |
-
-## Instalação rápida
+Comece pelo **[Tutorial de 10 minutos](tutorial.md)** — você instala, configura e roda
+um sync real do começo ao fim. Depois volte aqui para aprofundar no que precisar.
 
 ```bash
 pip install git+https://github.com/arktnld/tap-ixc.git
 ```
 
-Setup completo do zero em [Primeiros passos](getting-started.md).
+## O que torna o tap-ixc diferente
+
+Não é mais um script de extração. As decisões de arquitetura que importam em
+produção — retomada por checkpoint, load atômico, circuit breaker por endpoint,
+cursor incremental, dead letter por linha — estão explicadas em
+**[Arquitetura](concepts.md)**. Se você quer entender *por que* antes do *como*,
+comece por lá.
 
 ---
 

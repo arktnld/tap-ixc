@@ -17,6 +17,7 @@ Uso básico:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 
@@ -50,6 +51,20 @@ class TapResult:
     records_loaded: int
     status: str            # "success" | "failed"
     error: str | None = None
+
+
+def _advance_cursor(current: str | None, candidate: Any) -> str | None:
+    """Retorna o maior cursor entre o atual e o candidato.
+
+    Timestamps IXC ("YYYY-MM-DD HH:MM:SS") são lexicograficamente ordenáveis.
+    Ignora candidatos None/vazios.
+    """
+    if candidate is None or candidate == "":
+        return current
+    cand = str(candidate)
+    if current is None:
+        return cand
+    return max(current, cand)
 
 
 class IXCTap:
@@ -141,6 +156,15 @@ class IXCTap:
         client_id: str,
     ) -> TapResult:
         stream = entry.stream()
+        rep_key = stream.replication_key
+
+        # Incremental: retoma do último cursor salvo no checkpoint, não de
+        # "ontem meia-noite" hardcoded — assim pular um run não perde dados.
+        since: str | None = None
+        if entry.sync_mode == SyncMode.INCREMENTAL and rep_key:
+            last_cp = checkpoint.get_last(client_id, entry.destination_table)
+            if last_cp and last_cp.get("metadata"):
+                since = last_cp["metadata"].get("replication_key_value")
 
         staging = StagingLoader(
             duckdb_path=destination.duckdb_path,
@@ -158,10 +182,22 @@ class IXCTap:
         )
 
         def extract_stage(ctx: PipelineContext) -> None:
-            records = stream.get_records(self._client, entry.sync_mode, page_size=entry.page_size)
-            ndjson_path, total = staging.load(records)
+            cursor: dict[str, str | None] = {"v": since}
+
+            def tracked(it):
+                for rec in it:
+                    if rep_key:
+                        cursor["v"] = _advance_cursor(cursor["v"], rec.get(rep_key))
+                    yield rec
+
+            records = stream.get_records(
+                self._client, entry.sync_mode, since=since, page_size=entry.page_size
+            )
+            ndjson_path, total = staging.load(tracked(records))
             ctx.set("data_path", ndjson_path)
             ctx.set("records_extracted", total)
+            if rep_key and cursor["v"] is not None:
+                ctx.set("new_cursor", cursor["v"])
 
         def load_stage(ctx: PipelineContext) -> None:
             ctx.set("records_loaded", pg_loader.load())
@@ -189,6 +225,17 @@ class IXCTap:
                 Stage.LOAD: load_stage,
                 Stage.VERIFY: verify_stage,
             })
+            # Avança o cursor SÓ após EXTRACT+LOAD+VERIFY ok. Se LOAD falhar,
+            # o cursor não anda e o próximo run rebusca a mesma janela.
+            new_cursor = ctx.get("new_cursor")
+            if new_cursor is not None:
+                checkpoint.mark_done(
+                    client_id,
+                    entry.destination_table,
+                    Stage.VERIFY.value,
+                    data_path=ctx.get("data_path"),
+                    metadata={"replication_key_value": new_cursor},
+                )
             return TapResult(
                 stream=stream.name,
                 records_extracted=ctx.get("records_extracted", 0),

@@ -28,13 +28,10 @@ class EndpointConfig(BaseModel):
     strategy: Literal["full", "delta"] = "full"
     pk_column: str = "id"
     page_size: int = 5000
-    timeout_s: int = 60
     # Lista de campos a manter — None = SELECT * (todos os campos)
     fields: list[str] | None = None
     # SQL de transformação customizado — sobrescreve `fields` se definido
     transform_sql: str | None = None
-    # caminho dotted para classe Pydantic de validação (opcional)
-    schema_cls: str | None = None
 
 
 class ClientConfig(BaseModel):

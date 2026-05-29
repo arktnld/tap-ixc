@@ -6,7 +6,7 @@
 
 **Sincronize dados da API IXC Soft para PostgreSQL com uma chamada — e durma tranquilo.**
 
-`tap-ixc` extrai dados de provedores de internet que rodam **IXC Soft** (clientes, contratos, títulos — ou qualquer endpoint) e carrega no seu PostgreSQL. Diferente de um script `requests` + `INSERT`, ele já vem com tudo que faz uma carga sobreviver ao mundo real: retoma de onde parou, não derruba a tabela em produção se falhar no meio, e registra cada passo.
+`tap-ixc` extrai dados de provedores de internet que rodam **IXC Soft** — `cliente`, `fn_areceber`, ou qualquer outro endpoint — e carrega no seu PostgreSQL. Diferente de um script `requests` + `INSERT`, ele já vem com tudo que faz uma carga sobreviver ao mundo real: retoma de onde parou, não derruba a tabela em produção se falhar no meio, e registra cada passo.
 
 ```python
 from tap_ixc.tap import IXCTap, Destination
@@ -77,7 +77,7 @@ tap = IXCTap(ApiConfig(
 ))
 
 ok, err = tap.check_connection()          # verifica credenciais
-catalog = tap.discover()                  # → clientes, contratos, titulos
+catalog = tap.discover()                  # streams registrados (ver tabela abaixo)
 
 destination = Destination(
     postgres_dsn="postgresql://user:pass@host/db",
@@ -124,14 +124,11 @@ minha-empresa:
   endpoints:
     - name: clientes
       api_endpoint: cliente
-      strategy: full
+      strategy: full            # substitui a tabela toda
       page_size: 5000
-    - name: contratos
-      api_endpoint: cliente_contrato
-      strategy: full
     - name: titulos
       api_endpoint: fn_areceber
-      strategy: delta      # incremental por ultima_atualizacao
+      strategy: delta           # incremental por ultima_atualizacao
       pk_column: id
 ```
 

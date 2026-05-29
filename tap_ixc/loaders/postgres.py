@@ -9,6 +9,8 @@ from __future__ import annotations
 import duckdb
 import structlog
 
+from tap_ixc.loaders.base import validate_identifier
+
 log = structlog.get_logger()
 
 
@@ -50,10 +52,10 @@ class PostgresLoader:
     ) -> None:
         self._duckdb_path = duckdb_path
         self._pg_dsn = pg_dsn
-        self._schema = schema
-        self._table = table
+        self._schema = validate_identifier(schema, "schema")
+        self._table = validate_identifier(table, "nome de tabela")
         self._strategy = strategy
-        self._pk_column = pk_column
+        self._pk_column = validate_identifier(pk_column, "pk_column")
 
     def load(self) -> int:
         """Carrega tabela DuckDB para Postgres. Retorna count de registros."""

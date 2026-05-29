@@ -10,6 +10,7 @@ import duckdb
 import structlog
 
 from tap_ixc.core.contracts import sanitize
+from tap_ixc.loaders.base import validate_identifier
 
 log = structlog.get_logger()
 
@@ -30,7 +31,7 @@ class StagingLoader:
         transform_sql: str | None = None,
     ) -> None:
         self._duckdb_path = duckdb_path
-        self._table = table
+        self._table = validate_identifier(table, "nome de tabela")
         self._fields = fields
         self._transform_sql = transform_sql
         os.makedirs(os.path.dirname(duckdb_path), exist_ok=True)

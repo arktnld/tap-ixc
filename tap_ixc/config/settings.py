@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     )
     monitor_schema: str = Field(default="etl")
     clients_yml: Path = Path(__file__).parent.parent.parent / "config" / "clients.yml"
+
+    @field_validator("monitor_schema")
+    @classmethod
+    def _valid_schema(cls, v: str) -> str:
+        # interpolado nas queries de monitoramento — barra injeção via env
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", v):
+            raise ValueError(f"ETL_MONITOR_SCHEMA inválido: {v!r}")
+        return v
 
 
 _ENV_PATTERN = re.compile(r"\$\{([^}]+)\}")

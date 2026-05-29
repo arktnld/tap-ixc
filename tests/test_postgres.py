@@ -35,3 +35,25 @@ class TestColumnPlan:
     def test_target_extra_columns_ignored(self):
         # coluna que só existe no destino não entra no plano (fica NULL no insert)
         assert _column_plan({"id", "nome", "legado"}, ["id", "nome"]) == []
+
+
+class TestValidateIdentifier:
+    def test_accepts_valid(self):
+        from tap_ixc.loaders.base import validate_identifier
+        assert validate_identifier("clientes") == "clientes"
+        assert validate_identifier("fn_areceber_2") == "fn_areceber_2"
+
+    def test_rejects_injection(self):
+        import pytest
+        from tap_ixc.loaders.base import validate_identifier
+        for bad in ["cli; DROP TABLE x", "a b", "1abc", "tab-le", "", "x'y"]:
+            with pytest.raises(ValueError):
+                validate_identifier(bad)
+
+    def test_loader_rejects_bad_table(self, tmp_path):
+        import pytest
+        from tap_ixc.loaders.postgres import PostgresLoader
+        with pytest.raises(ValueError):
+            PostgresLoader(duckdb_path=str(tmp_path/"s.duckdb"),
+                           pg_dsn="postgresql://x", schema="public",
+                           table="clientes; DROP TABLE y")

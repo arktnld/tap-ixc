@@ -146,8 +146,8 @@ class IXCClient:
                 headers=self._headers(),
                 timeout=self._timeout_s,
             )
-            # Erros permanentes — não sofrem retry
-            if resp.status_code in {400, 401, 403, 404}:
+            # Erros permanentes — qualquer 4xx (exceto 429) não sofre retry
+            if 400 <= resp.status_code < 500 and resp.status_code != 429:
                 raise _PermanentHTTPError(
                     resp.status_code,
                     f"HTTP {resp.status_code}: {resp.text[:200]}",

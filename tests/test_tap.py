@@ -375,3 +375,62 @@ class TestValidateStage:
         valid = mock_stg.replace.call_args[0][0]
         assert len(valid) == 1
         assert valid[0]["id"] == 1
+
+
+class TestEmptyAndResume:
+    """Regressão: extração vazia e resume via --from-checkpoint."""
+
+    def test_empty_extract_is_noop_success(self, tmp_path):
+        # Bug: extração vazia (incremental sem mudanças) quebrava o LOAD.
+        tap = _make_tap()
+        destination = _make_destination(tmp_path)
+        catalog = tap.discover().select("clientes")
+
+        mock_cp = MagicMock(); mock_cp.get_last.return_value = None
+        mock_ev = MagicMock(); mock_ev.start_run.return_value = 1
+        mock_stg = MagicMock(); mock_stg.load.return_value = ("/tmp/x.ndjson", 0)  # vazio
+        mock_pg = MagicMock()
+
+        with (
+            patch("tap_ixc.tap.Settings") as MockSettings,
+            patch("tap_ixc.tap.Checkpoint", return_value=mock_cp),
+            patch("tap_ixc.tap.EventStore", return_value=mock_ev),
+            patch("tap_ixc.tap.StagingLoader", return_value=mock_stg),
+            patch("tap_ixc.tap.PostgresLoader", return_value=mock_pg),
+        ):
+            MockSettings.return_value.monitor_dsn = "postgresql://m"
+            MockSettings.return_value.monitor_schema = "etl"
+            results = tap.sync(destination, catalog)
+
+        assert results[0].status == "success"
+        assert results[0].records_loaded == 0
+        mock_pg.load.assert_not_called()  # LOAD pulado — não dropa a tabela à toa
+
+    def test_resume_skips_extract_verify_passes(self, tmp_path):
+        # Bug: VERIFY de contagem dava falso erro no resume (EXTRACT pulado).
+        tap = _make_tap()
+        destination = _make_destination(tmp_path)
+        catalog = tap.discover().select("clientes")
+
+        mock_cp = MagicMock()
+        mock_cp.get_last.return_value = {
+            "stage": "EXTRACT", "data_path": "/tmp/x.ndjson", "metadata": {},
+        }
+        mock_ev = MagicMock(); mock_ev.start_run.return_value = 1
+        mock_stg = MagicMock(); mock_stg.load.return_value = ("/tmp/x.ndjson", 5)
+        mock_pg = MagicMock(); mock_pg.load.return_value = 5
+
+        with (
+            patch("tap_ixc.tap.Settings") as MockSettings,
+            patch("tap_ixc.tap.Checkpoint", return_value=mock_cp),
+            patch("tap_ixc.tap.EventStore", return_value=mock_ev),
+            patch("tap_ixc.tap.StagingLoader", return_value=mock_stg),
+            patch("tap_ixc.tap.PostgresLoader", return_value=mock_pg),
+        ):
+            MockSettings.return_value.monitor_dsn = "postgresql://m"
+            MockSettings.return_value.monitor_schema = "etl"
+            results = tap.sync(destination, catalog, from_checkpoint=True)
+
+        assert results[0].status == "success"
+        mock_stg.load.assert_not_called()  # EXTRACT pulado
+        mock_pg.load.assert_called_once()  # LOAD rodou lendo o staging anterior

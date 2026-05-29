@@ -202,6 +202,10 @@ class IXCTap:
 
         def validate_stage(ctx: PipelineContext) -> None:
             # Só roda quando o stream define schema (senão nem é registrado abaixo).
+            # Extração vazia: nem tabela de staging existe — nada a validar.
+            if ctx.get("records_extracted") == 0:
+                ctx.set("records_valid", 0)
+                return
             rows = staging.read_all()
             valid, dead = validate_batch(rows, schema=stream.schema)
             if dead:
@@ -211,17 +215,26 @@ class IXCTap:
             ctx.set("records_valid", len(valid))
 
         def load_stage(ctx: PipelineContext) -> None:
+            # Extração vazia (ex: incremental sem mudanças): nada a carregar.
+            # Não dropa/recria a tabela à toa — vira no-op de sucesso.
+            if ctx.get("records_extracted") == 0:
+                ctx.set("records_loaded", 0)
+                return
             ctx.set("records_loaded", pg_loader.load())
 
         def verify_stage(ctx: PipelineContext) -> None:
-            extracted = ctx.get("records_extracted", 0)
-            # Se VALIDATE rodou, o esperado é o nº de válidas (dead letters saíram).
-            expected = ctx.get("records_valid", extracted)
             loaded = ctx.get("records_loaded", 0)
+            extracted = ctx.get("records_extracted")
+            # EXTRACT pulado (resume via --from-checkpoint): não há contagem
+            # desta sessão para comparar — confia no checkpoint anterior.
+            if extracted is None:
+                return
             if extracted > 0 and loaded == 0:
                 raise RuntimeError(
                     f"Verificação falhou: {extracted} extraídos, 0 carregados"
                 )
+            # Se VALIDATE rodou, o esperado é o nº de válidas (dead letters saíram).
+            expected = ctx.get("records_valid", extracted)
             if loaded != expected:
                 raise RuntimeError(
                     f"Contagem divergente: {expected} esperados, {loaded} carregados"

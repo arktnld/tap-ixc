@@ -31,6 +31,10 @@ dev = [
     "pytest>=8.0",
     "pytest-mock>=3.14",
 ]
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.25",
+]
 
 [project.scripts]
 tap-ixc = "tap_ixc.cli:cli"

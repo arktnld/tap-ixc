@@ -1,0 +1,80 @@
+site_name: tap-ixc
+site_description: Sincronize dados da API IXC Soft para PostgreSQL — checkpointing, retry, circuit breaker e observabilidade nativa.
+site_url: https://arktnld.github.io/tap-ixc/
+repo_url: https://github.com/arktnld/tap-ixc
+repo_name: arktnld/tap-ixc
+edit_uri: edit/master/docs/
+copyright: MIT — arktnld
+
+theme:
+  name: material
+  language: pt
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Modo escuro
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Modo claro
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.instant
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+    - search.suggest
+    - search.highlight
+
+nav:
+  - Início: index.md
+  - Primeiros passos: getting-started.md
+  - Guia do usuário:
+      - Configuração: configuration.md
+      - CLI: cli.md
+      - API Python: python-api.md
+      - Streams: streams.md
+      - Incremental e validação: incremental-and-validation.md
+      - Monitoramento: monitoring.md
+      - Deploy (Airflow/cron): deployment.md
+  - Arquitetura: concepts.md
+  - Referência da API: api-reference.md
+  - Contribuindo: contributing.md
+  - Code review: code-review.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search:
+      lang: pt
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            members_order: source
+            docstring_style: google

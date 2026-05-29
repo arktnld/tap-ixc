@@ -40,5 +40,8 @@ config/clients.yml
 .DS_Store
 Thumbs.db
 
+# MkDocs build
+site/
+
 # Claude Code (configs locais)
 .claude/settings.local.json

@@ -1,7 +1,10 @@
 # tap-ixc
 
+[![Docs](https://img.shields.io/badge/docs-online-008080.svg)](https://arktnld.github.io/tap-ixc/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+📖 **Documentação completa: [arktnld.github.io/tap-ixc](https://arktnld.github.io/tap-ixc/)**
 
 **Sincronize dados da API IXC Soft para PostgreSQL com uma chamada — e durma tranquilo.**
 
@@ -278,6 +281,20 @@ psql $ETL_MONITOR_DSN -f docs/schema.sql
 ```
 
 Tabelas criadas: `pipeline_runs`, `pipeline_events`, `checkpoints`, `dead_letters`.
+
+## Documentação
+
+Documentação completa hospedada em **[arktnld.github.io/tap-ixc](https://arktnld.github.io/tap-ixc/)**:
+
+| | |
+|---|---|
+| 🚀 [Tutorial de 10 minutos](https://arktnld.github.io/tap-ixc/tutorial/) | do zero ao sync agendado |
+| ⚙️ [Configuração](https://arktnld.github.io/tap-ixc/configuration/) | `clients.yml` campo a campo |
+| 💻 [CLI](https://arktnld.github.io/tap-ixc/cli/) | todos os comandos |
+| 🐍 [API Python](https://arktnld.github.io/tap-ixc/python-api/) · [Referência](https://arktnld.github.io/tap-ixc/api-reference/) | uso programático |
+| 🧩 [Streams](https://arktnld.github.io/tap-ixc/streams/) · [Incremental e validação](https://arktnld.github.io/tap-ixc/incremental-and-validation/) | como-fazer |
+| 🏗️ [Arquitetura](https://arktnld.github.io/tap-ixc/concepts/) | como funciona por dentro |
+| 📋 [Changelog](https://arktnld.github.io/tap-ixc/changelog/) | histórico de versões |
 
 ## Licença
 

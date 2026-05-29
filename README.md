@@ -4,8 +4,6 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-📖 **Documentação completa: [arktnld.github.io/tap-ixc](https://arktnld.github.io/tap-ixc/)**
-
 **Sincronize dados da API IXC Soft para PostgreSQL com uma chamada — e durma tranquilo.**
 
 `tap-ixc` extrai dados de provedores de internet que rodam **IXC Soft** — `cliente`, `fn_areceber`, ou qualquer outro endpoint — e carrega no seu PostgreSQL. Diferente de um script `requests` + `INSERT`, ele já vem com tudo que faz uma carga sobreviver ao mundo real: retoma de onde parou, não derruba a tabela em produção se falhar no meio, e registra cada passo.
@@ -284,17 +282,14 @@ Tabelas criadas: `pipeline_runs`, `pipeline_events`, `checkpoints`, `dead_letter
 
 ## Documentação
 
-Documentação completa hospedada em **[arktnld.github.io/tap-ixc](https://arktnld.github.io/tap-ixc/)**:
+A documentação completa está hospedada em
+[arktnld.github.io/tap-ixc](https://arktnld.github.io/tap-ixc/).
 
-| | |
-|---|---|
-| 🚀 [Tutorial de 10 minutos](https://arktnld.github.io/tap-ixc/tutorial/) | do zero ao sync agendado |
-| ⚙️ [Configuração](https://arktnld.github.io/tap-ixc/configuration/) | `clients.yml` campo a campo |
-| 💻 [CLI](https://arktnld.github.io/tap-ixc/cli/) | todos os comandos |
-| 🐍 [API Python](https://arktnld.github.io/tap-ixc/python-api/) · [Referência](https://arktnld.github.io/tap-ixc/api-reference/) | uso programático |
-| 🧩 [Streams](https://arktnld.github.io/tap-ixc/streams/) · [Incremental e validação](https://arktnld.github.io/tap-ixc/incremental-and-validation/) | como-fazer |
-| 🏗️ [Arquitetura](https://arktnld.github.io/tap-ixc/concepts/) | como funciona por dentro |
-| 📋 [Changelog](https://arktnld.github.io/tap-ixc/changelog/) | histórico de versões |
+- [Tutorial de 10 minutos](https://arktnld.github.io/tap-ixc/tutorial/)
+- [Configuração](https://arktnld.github.io/tap-ixc/configuration/) e [CLI](https://arktnld.github.io/tap-ixc/cli/)
+- [API Python](https://arktnld.github.io/tap-ixc/python-api/) e [referência da API](https://arktnld.github.io/tap-ixc/api-reference/)
+- [Arquitetura](https://arktnld.github.io/tap-ixc/concepts/)
+- [Changelog](https://arktnld.github.io/tap-ixc/changelog/)
 
 ## Licença
 

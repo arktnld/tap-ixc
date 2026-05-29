@@ -2,7 +2,9 @@
 
 Lib Python para sincronizar dados da **API IXC Provedor** para PostgreSQL.
 
-Extrai dados de provedores de internet que usam o sistema **IXC Soft** — clientes, contratos, títulos financeiros — e carrega direto no seu banco de dados com checkpointing por stage, retry automático e observabilidade nativa.
+Extrai dados de **qualquer endpoint da API IXC** de provedores que usam o sistema **IXC Soft** e carrega direto no seu banco de dados, com checkpointing por stage, retry automático e observabilidade nativa.
+
+Já vem com `clientes`, `contratos` e `titulos` prontos — qualquer outro endpoint (chamados, ordens de serviço, etc.) vira um stream em 2 passos (veja [Adicionar um stream](#adicionar-um-stream)).
 
 ## Instalação
 
@@ -98,13 +100,44 @@ minha-empresa:
 
 ## Streams disponíveis
 
-Todos os streams suportam `strategy: full` e `strategy: delta` — você configura por endpoint no `clients.yml`.
+Estes três já vêm registrados. Todos suportam `strategy: full` e `strategy: delta` — você configura por endpoint no `clients.yml`.
 
 | Stream | Endpoint IXC |
 |---|---|
 | `clientes` | `cliente` |
 | `contratos` | `cliente_contrato` |
 | `titulos` | `fn_areceber` |
+
+Não é uma lista fechada: qualquer endpoint exposto pela API IXC pode virar um stream.
+
+## Adicionar um stream
+
+Dois passos.
+
+**1. Criar `tap_ixc/streams/<nome>.py`:**
+
+```python
+from tap_ixc.streams.base import Stream
+
+class ChamadoStream(Stream):
+    name = "chamados"                  # nome da tabela destino
+    api_endpoint = "su_oss_chamado"    # endpoint na API IXC
+    replication_key = "data_alteracao" # None se não tiver modo delta
+```
+
+**2. Registrar em `tap_ixc/streams/__init__.py`:**
+
+```python
+from tap_ixc.streams.chamados import ChamadoStream
+
+STREAM_REGISTRY = {
+    # ...
+    ChamadoStream.name: ChamadoStream,
+}
+```
+
+Pronto. A lib cuida do resto: paginação, retry, circuit breaker, staging DuckDB,
+load Postgres e checkpoint. Depois é só referenciar `chamados` no `clients.yml`.
 
 
 ## Monitoramento

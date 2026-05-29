@@ -29,27 +29,44 @@ theme:
     - navigation.top
     - navigation.tracking
     - navigation.instant
+    - navigation.footer
     - content.code.copy
     - content.code.annotate
+    - content.tooltips
     - toc.follow
     - search.suggest
     - search.highlight
+  icon:
+    repo: fontawesome/brands/github
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/arktnld/tap-ixc
+      name: tap-ixc no GitHub
+  generator: false
 
 nav:
   - Início: index.md
-  - Primeiros passos: getting-started.md
-  - Guia do usuário:
+  - Tutorial:
+      - Primeiros passos: getting-started.md
+      - 10 minutos com tap-ixc: tutorial.md
+  - Guias (how-to):
+      - Adicionar um stream: streams.md
+      - Sync incremental e validação: incremental-and-validation.md
+      - Deploy (Airflow/cron): deployment.md
+  - Referência:
       - Configuração: configuration.md
       - CLI: cli.md
       - API Python: python-api.md
-      - Streams: streams.md
-      - Incremental e validação: incremental-and-validation.md
+      - API (autodoc): api-reference.md
+  - Explicação:
+      - Arquitetura: concepts.md
       - Monitoramento: monitoring.md
-      - Deploy (Airflow/cron): deployment.md
-  - Arquitetura: concepts.md
-  - Referência da API: api-reference.md
-  - Contribuindo: contributing.md
-  - Code review: code-review.md
+  - Sobre:
+      - Changelog: changelog.md
+      - Contribuindo: contributing.md
+      - Code review: code-review.md
 
 markdown_extensions:
   - admonition

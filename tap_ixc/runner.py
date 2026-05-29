@@ -47,10 +47,12 @@ def _build_catalog_from_config(cfg) -> Catalog:
         if not stream_cls:
             log.warning("runner.stream_not_found", name=ep.name, available=list(STREAM_REGISTRY))
             continue
+        # "delta" no YAML é sinônimo de INCREMENTAL (estratégia de paginação da API)
+        sync_mode = SyncMode.INCREMENTAL if ep.strategy == "delta" else SyncMode(ep.strategy)
         entries.append(CatalogEntry(
             stream=stream_cls,
             destination_table=ep.name,
-            sync_mode=SyncMode(ep.strategy),
+            sync_mode=sync_mode,
             selected_fields=ep.fields,
             pk_column=ep.pk_column,
             transform_sql=ep.transform_sql,

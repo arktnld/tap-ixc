@@ -5,9 +5,31 @@ import sys
 from typing import Any
 
 import click
+import psycopg
 import structlog
 
 log = structlog.get_logger()
+
+
+class _FriendlyGroup(click.Group):
+    """Converte erros comuns em mensagens limpas (sem traceback) para todos os comandos."""
+
+    def invoke(self, ctx: click.Context) -> Any:
+        try:
+            return super().invoke(ctx)
+        except (click.exceptions.ClickException, click.exceptions.Abort, SystemExit):
+            raise
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        except psycopg.errors.UndefinedTable as exc:
+            raise click.ClickException(
+                "Tabelas de monitoramento ausentes no Postgres. Crie o schema:\n"
+                '    psql "$ETL_MONITOR_DSN" -f docs/schema.sql'
+            ) from exc
+        except psycopg.OperationalError as exc:
+            raise click.ClickException(
+                f"Falha ao conectar no Postgres de monitoramento (ETL_MONITOR_DSN).\n{exc}"
+            ) from exc
 
 
 def _configure_logging() -> None:
@@ -27,7 +49,7 @@ def _configure_logging() -> None:
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 
 
-@click.group()
+@click.group(cls=_FriendlyGroup)
 def cli() -> None:
     """ETL Framework IXC — cortex_ai2"""
     _configure_logging()
@@ -90,18 +112,37 @@ def discover_cmd(client: str) -> None:
 @cli.command("check")
 @click.argument("client")
 def check_cmd(client: str) -> None:
-    """Verifica se as credenciais do cliente são válidas."""
-    from tap_ixc.config.settings import get_client
+    """Verifica credenciais da API e o banco de monitoramento."""
+    from tap_ixc.config.settings import Settings, get_client
     from tap_ixc.tap import IXCTap
 
     cfg = get_client(client)
     tap = IXCTap(cfg.api)
-    ok, err = tap.check_connection()
+    falhou = False
 
+    # 1) credenciais da API
+    ok, err = tap.check_connection()
     if ok:
-        click.echo(f"  ✓ Conexão com '{client}' ok.")
+        click.echo(f"  ✓ API de '{client}' ok.")
     else:
-        click.echo(f"  ✗ Falha na conexão: {err}", err=True)
+        click.echo(f"  ✗ API: {err}", err=True)
+        falhou = True
+
+    # 2) banco de monitoramento (conexão + schema)
+    settings = Settings()
+    try:
+        with psycopg.connect(settings.monitor_dsn, connect_timeout=5) as conn:
+            conn.execute(f"SELECT 1 FROM {settings.monitor_schema}.pipeline_runs LIMIT 0")
+        click.echo(f"  ✓ Monitoramento ok (schema '{settings.monitor_schema}').")
+    except psycopg.errors.UndefinedTable:
+        click.echo("  ✗ Monitoramento: tabelas ausentes. Rode:", err=True)
+        click.echo('      psql "$ETL_MONITOR_DSN" -f docs/schema.sql', err=True)
+        falhou = True
+    except psycopg.OperationalError as exc:
+        click.echo(f"  ✗ Monitoramento: não conectou (ETL_MONITOR_DSN). {exc}", err=True)
+        falhou = True
+
+    if falhou:
         raise SystemExit(1)
 
 

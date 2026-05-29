@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -93,14 +93,40 @@ def load_clients(path: Path | None = None) -> dict[str, ClientConfig]:
             f"    cp config/clients.yml.example config/clients.yml\n"
             f"e edite com base_url, token e postgres_dsn do seu cliente."
         )
-    raw = yaml.safe_load(yml_path.read_text())
+    try:
+        raw = yaml.safe_load(yml_path.read_text())
+    except yaml.YAMLError as exc:
+        raise ValueError(f"clients.yml com sintaxe YAML inválida ({yml_path}):\n{exc}") from exc
     if not raw:
         raise ValueError(f"Config de clientes vazia ou inválida: {yml_path}")
     clients: dict[str, ClientConfig] = {}
     for name, data in raw.items():
         data["client"] = name
-        clients[name] = ClientConfig.model_validate(data)
+        try:
+            clients[name] = ClientConfig.model_validate(data)
+        except ValidationError as exc:
+            campos = ", ".join(str(e["loc"][-1]) for e in exc.errors())
+            raise ValueError(
+                f"Cliente '{name}' com config inválida em clients.yml "
+                f"(campos: {campos}):\n{exc}"
+            ) from exc
     return clients
+
+
+def _assert_resolved(cfg: ClientConfig) -> None:
+    """Garante que não sobrou ${VAR} sem expandir nos campos críticos."""
+    checks = {
+        "api.token": cfg.api.token,
+        "api.base_url": cfg.api.base_url,
+        "postgres_dsn": cfg.postgres_dsn,
+    }
+    for campo, val in checks.items():
+        m = _ENV_PATTERN.search(val or "")
+        if m:
+            raise ValueError(
+                f"Cliente '{cfg.client}': variável de ambiente '{m.group(1)}' não definida "
+                f"(campo '{campo}' no clients.yml). Exporte a variável ou use um valor literal."
+            )
 
 
 def get_client(name: str, path: Path | None = None) -> ClientConfig:
@@ -110,4 +136,6 @@ def get_client(name: str, path: Path | None = None) -> ClientConfig:
             f"Cliente '{name}' não encontrado em clients.yml. "
             f"Disponíveis: {sorted(clients)}"
         )
-    return clients[name]
+    cfg = clients[name]
+    _assert_resolved(cfg)
+    return cfg

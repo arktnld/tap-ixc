@@ -181,6 +181,10 @@ baixam registros alterados desde o último run bem-sucedido. O cursor é salvo e
 falhar no meio, o próximo run rebusca a mesma janela, sem perda. Para o backfill
 histórico inicial, rode uma vez com `strategy: full`.
 
+> ⚠️ **Deletes:** o modo incremental só vê inserts/updates (`ultima_atualizacao >=`).
+> Um registro *apagado* na origem não é removido do destino. Para reconciliar deletes,
+> rode `strategy: full` periodicamente (ex.: semanal) — `full` recria a tabela e some com os órfãos.
+
 **Dead letter** — se um stream define um schema [pydantic](https://docs.pydantic.dev)
 opcional, o stage `VALIDATE` valida cada linha; as reprovadas vão para a tabela
 `etl.dead_letters` (com o erro) e o restante segue para o destino. O batch nunca

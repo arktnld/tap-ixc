@@ -215,10 +215,16 @@ class IXCTap:
 
         def verify_stage(ctx: PipelineContext) -> None:
             extracted = ctx.get("records_extracted", 0)
+            # Se VALIDATE rodou, o esperado é o nº de válidas (dead letters saíram).
+            expected = ctx.get("records_valid", extracted)
             loaded = ctx.get("records_loaded", 0)
             if extracted > 0 and loaded == 0:
                 raise RuntimeError(
-                    f"Verificação falhou: {extracted} extraídos, {loaded} carregados"
+                    f"Verificação falhou: {extracted} extraídos, 0 carregados"
+                )
+            if loaded != expected:
+                raise RuntimeError(
+                    f"Contagem divergente: {expected} esperados, {loaded} carregados"
                 )
 
         pipeline = PipelineRun(

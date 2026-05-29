@@ -51,6 +51,11 @@ def run_cmd(client: str, streams: tuple[str, ...], from_checkpoint: bool) -> Non
         for r in results:
             icon = "✓" if r.status == "success" else "✗"
             click.echo(f"  {icon} {r.stream}: {r.records_loaded} registros")
+            if r.error:
+                click.echo(f"      erro: {r.error}", err=True)
+        # exit != 0 se algum stream falhou — Airflow/cron detecta a falha
+        if any(r.status == "failed" for r in results):
+            raise SystemExit(1)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 

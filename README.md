@@ -63,6 +63,35 @@ cd tap-ixc
 pip install -e ".[dev]"
 ```
 
+## Primeiros passos (do zero)
+
+Do clone até o primeiro `run`, em 6 passos:
+
+```bash
+# 1. clonar + entrar
+git clone https://github.com/arktnld/tap-ixc && cd tap-ixc
+
+# 2. instalar (Python 3.12+) — cria o comando `tap-ixc`
+pip install -e .
+
+# 3. ter um Postgres rodando (destino + monitoramento)
+
+# 4. criar sua config a partir do exemplo e editar
+cp config/clients.yml.example config/clients.yml
+$EDITOR config/clients.yml        # base_url, token, postgres_dsn
+
+# 5. apontar o banco de monitoramento e criar as tabelas
+export ETL_MONITOR_DSN="postgresql://user:pass@localhost:5432/seu_db"
+psql "$ETL_MONITOR_DSN" -f docs/schema.sql
+
+# 6. validar credenciais e rodar
+tap-ixc check minha-empresa
+tap-ixc run   minha-empresa
+```
+
+> O passo 4 é obrigatório: `config/clients.yml` não vem no repositório (só o
+> `.example`). Se esquecer, a CLI avisa com o comando exato a rodar.
+
 ## Uso rápido
 
 ### Via Python
@@ -109,15 +138,19 @@ tap-ixc status                  # últimos 20 runs
 
 ## Configuração
 
+`token`, `postgres_dsn` e `base_url` aceitam **valor literal** ou **`${VAR}`**
+(expandido a partir de variáveis de ambiente). Pode misturar — use literal para
+dev local e `${VAR}` para secrets em produção.
+
 ```yaml
 minha-empresa:
   system: ixc
   schema_name: public
-  postgres_dsn: "${EMPRESA_POSTGRES_DSN}"
+  postgres_dsn: "postgresql://user:pass@localhost:5432/db"   # literal...
   duckdb_path: "/tmp/etl-staging/minha-empresa.duckdb"
   api:
-    base_url: "${EMPRESA_API_BASE_URL}"
-    token: "${EMPRESA_API_TOKEN}"
+    base_url: "https://minha-empresa.ixcsoft.com.br/webservice/v1"
+    token: "${EMPRESA_API_TOKEN}"                            # ...ou via env
     max_retries: 3
     timeout_s: 60
     backoff_factor: 0.5
@@ -131,6 +164,9 @@ minha-empresa:
       strategy: delta           # incremental por ultima_atualizacao
       pk_column: id
 ```
+
+> Dica: secrets reais (token/DSN de produção) ficam melhor em `${VAR}` — assim
+> não vão pro disco em texto puro. Para dev local, literal é mais prático.
 
 ## Streams disponíveis
 

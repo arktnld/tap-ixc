@@ -1,16 +1,19 @@
 # Copie este arquivo para clients.yml e preencha com suas credenciais
 # cp config/clients.yml.example config/clients.yml
 #
-# Variáveis de ambiente: use ${VAR_NAME} para não expor credenciais
+# token / postgres_dsn / base_url aceitam VALOR LITERAL ou ${VAR_NAME}.
+#   - literal: prático para dev local
+#   - ${VAR}:  preferível para secrets de produção (não vai pro disco em texto puro)
+# Pode misturar os dois, como abaixo.
 
 minha-empresa:
   system: ixc
   schema_name: public
-  postgres_dsn: "${EMPRESA_POSTGRES_DSN}"
+  postgres_dsn: "postgresql://user:pass@localhost:5432/db"   # literal
   duckdb_path: "/tmp/etl-staging/minha-empresa.duckdb"
   api:
-    base_url: "${EMPRESA_API_BASE_URL}"
-    token: "${EMPRESA_API_TOKEN}"
+    base_url: "https://minha-empresa.ixcsoft.com.br/webservice/v1"  # literal
+    token: "${EMPRESA_API_TOKEN}"                            # ou via env var
     max_retries: 3
     timeout_s: 60
     backoff_factor: 0.5

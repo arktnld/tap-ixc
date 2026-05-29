@@ -63,34 +63,45 @@ cd tap-ixc
 pip install -e ".[dev]"
 ```
 
-## Primeiros passos (do zero)
+## 10 minutos com tap-ixc
 
-Do clone até o primeiro `run`, em 6 passos:
+Do clone ao primeiro sync, incremental e agendado.
 
 ```bash
-# 1. clonar + entrar
+# 1. clonar + instalar (Python 3.12+) — cria o comando `tap-ixc`
 git clone https://github.com/arktnld/tap-ixc && cd tap-ixc
-
-# 2. instalar (Python 3.12+) — cria o comando `tap-ixc`
 pip install -e .
 
-# 3. ter um Postgres rodando (destino + monitoramento)
-
-# 4. criar sua config a partir do exemplo e editar
+# 2. criar sua config a partir do exemplo e editar
 cp config/clients.yml.example config/clients.yml
 $EDITOR config/clients.yml        # base_url, token, postgres_dsn
 
-# 5. apontar o banco de monitoramento e criar as tabelas
+# 3. apontar o banco de monitoramento e criar as tabelas
 export ETL_MONITOR_DSN="postgresql://user:pass@localhost:5432/seu_db"
 psql "$ETL_MONITOR_DSN" -f docs/schema.sql
 
-# 6. validar credenciais e rodar
+# 4. validar (API + monitoramento) e rodar a primeira carga
 tap-ixc check minha-empresa
-tap-ixc run   minha-empresa
+tap-ixc run   minha-empresa       #   ✓ clientes: 12435 registros
 ```
 
-> O passo 4 é obrigatório: `config/clients.yml` não vem no repositório (só o
+> O passo 2 é obrigatório: `config/clients.yml` não vem no repositório (só o
 > `.example`). Se esquecer, a CLI avisa com o comando exato a rodar.
+
+**Ligue o incremental** — troque `strategy: full` por `delta` no `clients.yml` e os
+próximos runs baixam só o que mudou (cursor por `ultima_atualizacao`):
+
+```bash
+tap-ixc run minha-empresa         #   ✓ clientes: 37 registros (só o que mudou)
+```
+
+**Agende** — cada run é idempotente e o load é atômico; `run` sai `!= 0` em falha:
+
+```cron
+0 8 * * * cd /opt/tap-ixc && ETL_MONITOR_DSN="$ETL_MONITOR_DSN" tap-ixc run minha-empresa
+```
+
+📖 Passo a passo completo (com explicações): **[Tutorial de 10 minutos](https://arktnld.github.io/tap-ixc/tutorial/)**.
 
 ## Uso rápido
 

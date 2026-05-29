@@ -56,7 +56,7 @@ def run_cmd(client: str, streams: tuple[str, ...], from_checkpoint: bool) -> Non
         # exit != 0 se algum stream falhou — Airflow/cron detecta a falha
         if any(r.status == "failed" for r in results):
             raise SystemExit(1)
-    except ValueError as exc:
+    except (ValueError, FileNotFoundError) as exc:
         raise click.ClickException(str(exc)) from exc
 
 

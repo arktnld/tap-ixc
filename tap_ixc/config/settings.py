@@ -86,7 +86,16 @@ def _expand(value: str) -> str:
 def load_clients(path: Path | None = None) -> dict[str, ClientConfig]:
     settings = Settings()
     yml_path = path or settings.clients_yml
-    raw: dict = yaml.safe_load(yml_path.read_text())
+    if not yml_path.exists():
+        raise FileNotFoundError(
+            f"Config de clientes não encontrada: {yml_path}\n"
+            f"Crie a partir do exemplo:\n"
+            f"    cp config/clients.yml.example config/clients.yml\n"
+            f"e edite com base_url, token e postgres_dsn do seu cliente."
+        )
+    raw = yaml.safe_load(yml_path.read_text())
+    if not raw:
+        raise ValueError(f"Config de clientes vazia ou inválida: {yml_path}")
     clients: dict[str, ClientConfig] = {}
     for name, data in raw.items():
         data["client"] = name
@@ -97,5 +106,8 @@ def load_clients(path: Path | None = None) -> dict[str, ClientConfig]:
 def get_client(name: str, path: Path | None = None) -> ClientConfig:
     clients = load_clients(path)
     if name not in clients:
-        raise KeyError(f"Cliente '{name}' não encontrado em clients.yml")
+        raise ValueError(
+            f"Cliente '{name}' não encontrado em clients.yml. "
+            f"Disponíveis: {sorted(clients)}"
+        )
     return clients[name]

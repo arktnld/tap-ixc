@@ -29,6 +29,10 @@ log = structlog.get_logger()
 # servidor (ex: "Retry-After: 2592000") trave a aplicação.
 _MAX_RETRY_AFTER_S = 300.0
 
+# Trava de segurança: teto de páginas por stream (evita loop infinito se a API
+# nunca retornar página vazia nem total confiável).
+_MAX_PAGES = 100_000
+
 
 class _PermanentHTTPError(Exception):
     """Erro HTTP permanente que não deve sofrer retry (4xx não transiente)."""
@@ -233,7 +237,13 @@ class IXCClient:
 
                 records: list[dict[str, Any]] = response.get("registros", []) or []
                 total_raw = response.get("total", "")
-                total_api = int(total_raw) if str(total_raw).isdigit() else None
+                # Parse robusto: aceita "123"/"123.0", rejeita vazio/negativo/lixo.
+                try:
+                    total_api: int | None = int(float(total_raw))
+                    if total_api < 0:
+                        total_api = None
+                except (ValueError, TypeError):
+                    total_api = None
 
                 if not records:
                     break
@@ -263,6 +273,11 @@ class IXCClient:
                 )
 
                 if total_api is not None and total_fetched >= total_api:
+                    break
+
+                # Trava de segurança: nunca paginar indefinidamente.
+                if page >= _MAX_PAGES:
+                    log.warning("client.max_pages_reached", endpoint=endpoint, pages=page)
                     break
 
                 # Rate limiting entre páginas

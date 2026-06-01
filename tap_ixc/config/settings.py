@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Literal
 
 import yaml
@@ -20,6 +21,19 @@ class ApiConfig(BaseModel):
     wait_jitter: float = 1.0           # jitter no backoff (anti-thundering-herd)
     session_renewal_every: int = 0     # recriar sessão a cada N páginas (0 = desligado)
     rate_limit_sleep: float = 0.0      # pausa entre páginas em segundos (0 = desligado)
+
+    @field_validator("base_url")
+    @classmethod
+    def _valid_base_url(cls, v: str) -> str:
+        # ${VAR} ainda não-expandido passa (expansão ocorre depois, em ClientConfig).
+        if "${" in v:
+            return v
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError(
+                f"base_url inválida: {v!r} — esperado http(s)://host/caminho"
+            )
+        return v
 
 
 class EndpointConfig(BaseModel):

@@ -65,3 +65,28 @@ def test_malformed_yaml_raises_clear(tmp_path):
     bad.write_text("foo: [1, 2\nbar: }{")
     with pytest.raises(ValueError, match="YAML"):
         load_clients(bad)
+
+
+class TestApiConfigBaseUrl:
+    def test_accepts_https(self):
+        from tap_ixc.config.settings import ApiConfig
+        cfg = ApiConfig(base_url="https://x.ixcsoft.com.br/webservice/v1", token="u:t")
+        assert cfg.base_url.startswith("https://")
+
+    def test_accepts_unexpanded_env_var(self):
+        from tap_ixc.config.settings import ApiConfig
+        cfg = ApiConfig(base_url="${EMPRESA_API_BASE_URL}", token="u:t")
+        assert cfg.base_url == "${EMPRESA_API_BASE_URL}"
+
+    def test_rejects_non_http_scheme(self):
+        import pytest
+        from tap_ixc.config.settings import ApiConfig
+        with pytest.raises(ValueError, match="base_url"):
+            ApiConfig(base_url="ftp://host/x", token="u:t")
+
+    def test_rejects_garbage(self):
+        import pytest
+        from tap_ixc.config.settings import ApiConfig
+        for bad in ["not-a-url", "", "://nohost"]:
+            with pytest.raises(ValueError):
+                ApiConfig(base_url=bad, token="u:t")

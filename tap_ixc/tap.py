@@ -25,6 +25,7 @@ from tap_ixc.catalog import Catalog, CatalogEntry, SyncMode
 from tap_ixc.config.settings import ApiConfig, Settings
 from tap_ixc.core.checkpoint import Checkpoint
 from tap_ixc.core.contracts import validate_batch
+from tap_ixc.core.redact import redact
 from tap_ixc.core.events import EventStore
 from tap_ixc.core.pipeline import PipelineContext, PipelineRun, Stage
 from tap_ixc.extractors.api import IXCClient
@@ -274,10 +275,12 @@ class IXCTap:
                 status="success",
             )
         except Exception as exc:
+            # Conta parcial do ctx do pipeline (EXTRACT pode ter completado antes da falha).
+            failed = pipeline.ctx
             return TapResult(
                 stream=stream.name,
-                records_extracted=0,
-                records_loaded=0,
+                records_extracted=failed.get("records_extracted", 0),
+                records_loaded=failed.get("records_loaded", 0),
                 status="failed",
-                error=str(exc),
+                error=redact(str(exc)),
             )

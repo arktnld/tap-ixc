@@ -434,3 +434,34 @@ class TestEmptyAndResume:
         assert results[0].status == "success"
         mock_stg.load.assert_not_called()  # EXTRACT pulado
         mock_pg.load.assert_called_once()  # LOAD rodou lendo o staging anterior
+
+
+class TestFailurePreservesContext:
+    def test_load_failure_keeps_extracted_count_and_redacts(self, tmp_path):
+        # EXTRACT completa (10), LOAD falha → TapResult mantém extracted=10 e redige DSN.
+        tap = _make_tap()
+        destination = _make_destination(tmp_path)
+        catalog = tap.discover().select("clientes")
+
+        mock_cp = MagicMock(); mock_cp.get_last.return_value = None
+        mock_ev = MagicMock(); mock_ev.start_run.return_value = 1
+        mock_stg = MagicMock(); mock_stg.load.return_value = ("/tmp/x.ndjson", 10)
+        mock_pg = MagicMock()
+        mock_pg.load.side_effect = RuntimeError("conn postgresql://u:segredo@h/db failed")
+
+        with (
+            patch("tap_ixc.tap.Settings") as MockSettings,
+            patch("tap_ixc.tap.Checkpoint", return_value=mock_cp),
+            patch("tap_ixc.tap.EventStore", return_value=mock_ev),
+            patch("tap_ixc.tap.StagingLoader", return_value=mock_stg),
+            patch("tap_ixc.tap.PostgresLoader", return_value=mock_pg),
+        ):
+            MockSettings.return_value.monitor_dsn = "postgresql://m"
+            MockSettings.return_value.monitor_schema = "etl"
+            results = tap.sync(destination, catalog)
+
+        r = results[0]
+        assert r.status == "failed"
+        assert r.records_extracted == 10          # não mais 0
+        assert "segredo" not in r.error            # senha redigida
+        assert "***" in r.error

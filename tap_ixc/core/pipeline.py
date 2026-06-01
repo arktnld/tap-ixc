@@ -8,6 +8,7 @@ import structlog
 
 from tap_ixc.core.checkpoint import Checkpoint
 from tap_ixc.core.events import EventStore
+from tap_ixc.core.redact import redact
 
 log = structlog.get_logger()
 
@@ -57,6 +58,7 @@ class PipelineRun:
         self._checkpoint = checkpoint
         self._events = events
         self._from_checkpoint = from_checkpoint
+        self.ctx = PipelineContext()
 
     def _last_done_stage(self) -> Stage | None:
         cp = self._checkpoint.get_last(self._client, self._pipeline)
@@ -75,7 +77,8 @@ class PipelineRun:
         return this_idx <= last_idx
 
     def execute(self, stages: dict[Stage, StageFn]) -> PipelineContext:
-        ctx = PipelineContext()
+        # Exposto como atributo p/ o caller ler contagens parciais mesmo se execute() falhar.
+        self.ctx = ctx = PipelineContext()
         run_id = self._events.start_run(self._client, self._system, self._pipeline)
         ctx.set("run_id", run_id)
         last_done = self._last_done_stage() if self._from_checkpoint else None
@@ -117,11 +120,12 @@ class PipelineRun:
                 stage=Stage.VERIFY.value,
             )
         except Exception as exc:
-            log.error("pipeline.failed", pipeline=self._pipeline, error=str(exc))
+            safe_err = redact(str(exc))
+            log.error("pipeline.failed", pipeline=self._pipeline, error=safe_err)
             self._events.finish_run(
                 run_id,
                 status="FAILED",
-                error=str(exc),
+                error=safe_err,
                 records_in=ctx.get("records_extracted", 0),
             )
             raise

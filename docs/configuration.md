@@ -88,6 +88,12 @@ Cada item vira um stream sincronizado.
   fields: [id, nome, cpf_cnpj, email, status, data_cadastro]   # exclui senha etc.
 ```
 
+!!! warning "Dados sensíveis"
+    O endpoint `cliente` do IXC retorna campos sensíveis como `senha` e
+    `senha_hotsite_md5`. Sem `fields`, **todas** as colunas (incluindo hashes de
+    senha) vão para o destino. Liste explicitamente os campos que você precisa
+    para não levar credenciais ao warehouse.
+
 ### `transform_sql` — transformação custom
 
 `{raw}` é substituído pela origem (NDJSON da extração). Sobrescreve `fields`.

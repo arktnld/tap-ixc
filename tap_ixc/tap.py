@@ -26,6 +26,7 @@ from tap_ixc.config.settings import ApiConfig, Settings
 from tap_ixc.core.checkpoint import Checkpoint
 from tap_ixc.core.contracts import validate_batch
 from tap_ixc.core.redact import redact
+from tap_ixc.loaders.base import validate_identifier
 from tap_ixc.core.events import EventStore
 from tap_ixc.core.pipeline import PipelineContext, PipelineRun, Stage
 from tap_ixc.extractors.api import IXCClient
@@ -43,6 +44,13 @@ class Destination:
     postgres_dsn: str
     schema: str
     duckdb_path: str
+
+    def __post_init__(self) -> None:
+        if not self.postgres_dsn:
+            raise ValueError("Destination.postgres_dsn não pode ser vazio")
+        if not self.duckdb_path:
+            raise ValueError("Destination.duckdb_path não pode ser vazio")
+        validate_identifier(self.schema, "schema do destino")
 
 
 @dataclass

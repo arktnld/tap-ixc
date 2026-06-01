@@ -465,3 +465,15 @@ class TestFailurePreservesContext:
         assert r.records_extracted == 10          # não mais 0
         assert "segredo" not in r.error            # senha redigida
         assert "***" in r.error
+
+
+class TestDestinationValidation:
+    def test_valid(self):
+        d = Destination("postgresql://x", "public", "/tmp/a.duckdb")
+        assert d.schema == "public"
+
+    def test_rejects_empty_and_bad_schema(self):
+        import pytest
+        for bad in [("", "public", "/tmp/a"), ("dsn", "bad schema", "/tmp/a"), ("dsn", "public", "")]:
+            with pytest.raises(ValueError):
+                Destination(*bad)

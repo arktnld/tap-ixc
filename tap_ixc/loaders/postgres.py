@@ -84,7 +84,7 @@ class PostgresLoader:
             try:
                 conn.execute(f"SELECT 1 FROM {qualified} LIMIT 0")
                 table_exists = True
-            except Exception:
+            except duckdb.Error:
                 table_exists = False
 
             try:

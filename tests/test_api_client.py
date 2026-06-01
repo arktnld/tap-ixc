@@ -164,6 +164,37 @@ class TestPaginate:
         assert len(results) == 2
         mock_time.sleep.assert_called_with(0.1)
 
+    def test_rate_limit_429_respects_retry_after_cap(self):
+        """Retry-After de um 429 é limitado a _MAX_RETRY_AFTER_S.
+
+        Sem o teto, um servidor mandando 'Retry-After: 2592000' (30 dias)
+        travaria a aplicação. O client limita a 300s.
+        """
+        client = IXCClient(
+            base_url="https://api.example.com/webservice/v1",
+            token="user:token",
+            page_size=1,
+            max_retries=1,
+        )
+        resp = MagicMock()
+        resp.status_code = 429
+        resp.headers = {"Retry-After": "3600"}  # 1 hora, muito longo
+        resp.raise_for_status.return_value = None
+
+        mock_http = MagicMock()
+        mock_breaker = MagicMock()
+        mock_breaker.call.return_value = resp
+
+        with patch("tap_ixc.extractors.api.get_circuit_breaker", return_value=mock_breaker):
+            with patch("tap_ixc.extractors.api.time") as mock_time:
+                with pytest.raises(httpx.ReadTimeout):
+                    client._fetch_page(mock_http, "cliente", {})
+
+                # Retry-After 3600 deve ser limitado ao teto (_MAX_RETRY_AFTER_S = 300)
+                sleep_calls = [call[0][0] for call in mock_time.sleep.call_args_list]
+                assert len(sleep_calls) > 0
+                assert sleep_calls[-1] == 300.0
+
     def test_rate_limit_zero_does_not_sleep(self):
         """rate_limit_sleep=0.0 (default): sem sleep entre páginas."""
         pages = [self._page([{"id": "1"}], 1)]

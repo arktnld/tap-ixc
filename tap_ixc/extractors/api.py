@@ -25,6 +25,10 @@ from tap_ixc.core.retry import get_circuit_breaker
 
 log = structlog.get_logger()
 
+# Teto para o Retry-After de respostas 429 — evita que um valor absurdo do
+# servidor (ex: "Retry-After: 2592000") trave a aplicação.
+_MAX_RETRY_AFTER_S = 300.0
+
 
 class _PermanentHTTPError(Exception):
     """Erro HTTP permanente que não deve sofrer retry (4xx não transiente)."""
@@ -152,9 +156,13 @@ class IXCClient:
                     resp.status_code,
                     f"HTTP {resp.status_code}: {resp.text[:200]}",
                 )
-            # 429 — rate limit: respeitar Retry-After do servidor
+            # 429 — rate limit: respeitar Retry-After, com teto para não travar a
+            # aplicação se o servidor mandar um valor absurdo (ex: 30 dias).
             if resp.status_code == 429:
-                retry_after = float(resp.headers.get("Retry-After", self._backoff_factor * 4))
+                retry_after = min(
+                    float(resp.headers.get("Retry-After", self._backoff_factor * 4)),
+                    _MAX_RETRY_AFTER_S,
+                )
                 time.sleep(retry_after)
                 raise httpx.ReadTimeout(f"Rate limited (429), aguardou {retry_after:.1f}s")
             # 5xx e outros 4xx → raise_for_status → HTTPStatusError → retry

@@ -38,3 +38,45 @@ class TestNotifyWebhook:
         with patch("tap_ixc.runner.httpx.post", side_effect=RuntimeError("down")):
             # não deve levantar
             _notify_webhook("https://hook", "gwg", _results(ok=True))
+
+
+class TestRunDuckdbOverride:
+    def test_duckdb_path_override_passed_to_destination(self):
+        from unittest.mock import MagicMock
+        from tap_ixc import runner
+
+        cfg = MagicMock()
+        cfg.postgres_dsn = "postgresql://x"
+        cfg.schema_name = "public"
+        cfg.duckdb_resolved.return_value = "/default/c.duckdb"
+        cfg.webhook_url = None
+
+        with (
+            patch("tap_ixc.runner.get_client", return_value=cfg),
+            patch("tap_ixc.runner.IXCTap"),
+            patch("tap_ixc.runner._build_catalog_from_config", return_value=MagicMock()),
+            patch("tap_ixc.runner.Destination") as MockDest,
+        ):
+            runner.run("gwg", duckdb_path="/override/c-clientes.duckdb")
+
+        assert MockDest.call_args.kwargs["duckdb_path"] == "/override/c-clientes.duckdb"
+
+    def test_duckdb_path_default_when_omitted(self):
+        from unittest.mock import MagicMock
+        from tap_ixc import runner
+
+        cfg = MagicMock()
+        cfg.postgres_dsn = "postgresql://x"
+        cfg.schema_name = "public"
+        cfg.duckdb_resolved.return_value = "/default/c.duckdb"
+        cfg.webhook_url = None
+
+        with (
+            patch("tap_ixc.runner.get_client", return_value=cfg),
+            patch("tap_ixc.runner.IXCTap"),
+            patch("tap_ixc.runner._build_catalog_from_config", return_value=MagicMock()),
+            patch("tap_ixc.runner.Destination") as MockDest,
+        ):
+            runner.run("gwg")
+
+        assert MockDest.call_args.kwargs["duckdb_path"] == "/default/c.duckdb"

@@ -22,42 +22,65 @@ O cron detecta falha pelo exit code `!= 0`.
 
 ## Airflow
 
-Prefira `PythonOperator` chamando `runner.run()` — você recebe os `TapResult` na mão
-(o `BashOperator` chamando a CLI também funciona, pelo exit code).
+A lib não depende de Airflow — a integração é via `runner.run()`, que retorna
+`list[TapResult]` (você levanta em falha) e nunca escreve em stdout. Use a
+**TaskFlow API** (Airflow 2.x e 3.x) com **uma task por stream**, para retry e
+paralelismo isolados.
 
 ```python
-from datetime import datetime, timedelta
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from tap_ixc.runner import run
+import os
+from datetime import timedelta
+import pendulum
+
+try:                                    # Airflow 3.x
+    from airflow.sdk import dag, task
+except ImportError:                     # Airflow 2.x
+    from airflow.decorators import dag, task
 
 CLIENT = "minha-empresa"
+STREAMS = ["clientes", "contratos", "titulos"]
 
-def sync_ixc(**_):
-    results = run(CLIENT)                      # full fresh, idempotente
-    for r in results:
-        print(r.stream, r.status, r.records_loaded)
-    falhas = [r for r in results if r.status == "failed"]
-    if falhas:
-        raise RuntimeError(f"streams falharam: {[(r.stream, r.error) for r in falhas]}")
-
-with DAG(
-    dag_id="ixc_sync_minha_empresa",
+@dag(
     schedule="0 8 * * *",
-    start_date=datetime(2026, 1, 1),
-    catchup=False,                 # não reprocessa dias perdidos — sempre o dado de hoje
-    max_active_runs=1,             # nunca 2 cargas simultâneas (staging DuckDB compartilhado)
-    default_args={"retries": 3, "retry_delay": timedelta(minutes=10)},
+    start_date=pendulum.datetime(2026, 1, 1, tz="America/Sao_Paulo"),
+    catchup=False,                      # sempre o dado de hoje
+    max_active_runs=1,                  # nunca 2 cargas simultâneas
+    default_args={"retries": 3, "retry_delay": timedelta(minutes=10),
+                  "execution_timeout": timedelta(hours=2)},
     tags=["ixc", "etl"],
-) as dag:
-    PythonOperator(
-        task_id="sync",
-        python_callable=sync_ixc,
-        execution_timeout=timedelta(hours=2),
-    )
+)
+def ixc_sync():
+    @task
+    def sync_stream(stream: str) -> dict:
+        from tap_ixc.runner import run
+        # staging isolado por stream (DuckDB é single-writer → tasks paralelas
+        # não podem compartilhar o mesmo arquivo)
+        results = run(CLIENT, [stream],
+                      duckdb_path=f"/tmp/etl-staging/{CLIENT}-{stream}.duckdb")
+        r = results[0]
+        if r.status == "failed":
+            raise RuntimeError(f"stream {r.stream} falhou: {r.error}")
+        return {"stream": r.stream, "records_loaded": r.records_loaded}
+
+    sync_stream.expand(stream=STREAMS)   # dynamic mapping: 1 task por stream
+
+ixc_sync()
 ```
 
-Um exemplo pronto está em
+!!! note "Compatibilidade"
+    - **Airflow 3.x**: `from airflow.sdk import dag, task` (clássico:
+      `from airflow.providers.standard.operators.python import PythonOperator`).
+    - **Airflow 2.x**: `from airflow.decorators import dag, task`.
+    - O `try/except` no import cobre as duas versões.
+
+!!! tip "Secrets e Assets"
+    - Secrets: traga de **Airflow Variables/Connections** para as env vars que o
+      `clients.yml` resolve (`${VAR}`), ou monte `ApiConfig`/`Destination` direto
+      no task a partir da Connection (dispensa `clients.yml`).
+    - Para encadear DAGs a jusante, declare a tabela como **Asset** (3.x) /
+      **Dataset** (2.x): `@task(outlets=[Asset("postgres://.../clientes")])`.
+
+Exemplo completo (mapping, secrets, compat) em
 [`examples/airflow_dag.py`](https://github.com/arktnld/tap-ixc/blob/master/examples/airflow_dag.py).
 
 !!! tip "Incremental vs full no agendamento"

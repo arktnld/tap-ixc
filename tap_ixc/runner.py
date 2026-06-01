@@ -42,17 +42,20 @@ def run(
     client_name: str,
     streams: list[str] | None = None,
     from_checkpoint: bool = False,
+    duckdb_path: str | None = None,
 ) -> list[TapResult]:
     """
     Roda o tap para um cliente definido no clients.yml.
     streams=None → todos os streams configurados no YAML.
+    duckdb_path → sobrescreve o staging DuckDB (útil p/ isolar por stream em
+        execuções paralelas, ex: uma task Airflow por stream).
     """
     cfg = get_client(client_name)
     tap = IXCTap(cfg.api)
     destination = Destination(
         postgres_dsn=cfg.postgres_dsn,
         schema=cfg.schema_name,
-        duckdb_path=cfg.duckdb_resolved(),
+        duckdb_path=duckdb_path or cfg.duckdb_resolved(),
     )
 
     catalog = _build_catalog_from_config(cfg)

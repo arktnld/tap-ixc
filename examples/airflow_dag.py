@@ -46,10 +46,16 @@ def _hydrate_secrets() -> None:
             os.environ.setdefault(key, val)
 
 
+# Schedule com jitter determinístico por cliente — evita pico de carga quando
+# muitos DAGs rodam na mesma hora redonda (lição Airflow-at-scale da Shopify).
+# Minuto = hash(cliente) % 60; troque por um cron fixo se preferir.
+_MIN = sum(ord(c) for c in CLIENT) % 60
+
+
 @dag(
     dag_id="ixc_sync_gwg",
     description="Sync diário IXC (um task por stream) → Postgres",
-    schedule="0 8 * * *",                 # todo dia às 8h
+    schedule=f"{_MIN} 8 * * *",           # ~8h, minuto deslocado por cliente
     start_date=pendulum.datetime(2026, 1, 1, tz="America/Sao_Paulo"),
     catchup=False,
     max_active_runs=1,                    # nunca 2 cargas simultâneas
@@ -63,7 +69,9 @@ def _hydrate_secrets() -> None:
     tags=["ixc", "etl"],
 )
 def ixc_sync():
-    @task
+    # pool="ixc_api": cap de streams batendo na API IXC ao mesmo tempo.
+    # Crie o pool no Airflow (ex: 2 slots) p/ evitar rate-limit / ban de IP.
+    @task(pool="ixc_api")
     def sync_stream(stream: str) -> dict:
         """Sincroniza UM stream. Levanta se falhar → Airflow re-tenta só este."""
         from tap_ixc.runner import run

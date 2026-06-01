@@ -73,6 +73,16 @@ ixc_sync()
     - **Airflow 2.x**: `from airflow.decorators import dag, task`.
     - O `try/except` no import cobre as duas versões.
 
+!!! tip "Boas práticas em escala (lições Airflow-at-scale)"
+    - **Pool para a API**: ponha as tasks de stream num pool (`@task(pool="ixc_api")`)
+      com poucos slots — limita hits simultâneos na API IXC e evita rate-limit/ban de IP.
+    - **Evite cron em hora redonda** (`0 8 * * *`): muitos DAGs no mesmo minuto = pico.
+      Desloque o minuto por cliente (jitter determinístico).
+    - **Cargas pesadas**: combine o pool com `rate_limit_sleep` no `clients.yml`
+      (pausa entre páginas) para não martelar a API.
+    - **Top-level barato**: mantenha `import` da lib e chamadas dentro do `@task`
+      (não no topo do arquivo) — o scheduler reparseia o DAG o tempo todo.
+
 !!! tip "Secrets e Assets"
     - Secrets: traga de **Airflow Variables/Connections** para as env vars que o
       `clients.yml` resolve (`${VAR}`), ou monte `ApiConfig`/`Destination` direto

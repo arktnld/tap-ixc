@@ -8,7 +8,7 @@ import httpx
 import structlog
 
 from tap_ixc.catalog import Catalog, CatalogEntry, SyncMode
-from tap_ixc.config.settings import get_client
+from tap_ixc.config.settings import ClientConfig, get_client
 from tap_ixc.streams import STREAM_REGISTRY
 from tap_ixc.tap import Destination, IXCTap, TapResult
 
@@ -68,7 +68,7 @@ def run(
     return results
 
 
-def _build_catalog_from_config(cfg) -> Catalog:
+def _build_catalog_from_config(cfg: ClientConfig) -> Catalog:
     """Converte EndpointConfig do YAML em CatalogEntry."""
     entries = []
     for ep in cfg.endpoints:

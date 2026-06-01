@@ -30,7 +30,7 @@ from tap_ixc.core.pipeline import PipelineContext, PipelineRun, Stage
 from tap_ixc.extractors.api import IXCClient
 from tap_ixc.loaders.postgres import PostgresLoader
 from tap_ixc.loaders.staging import StagingLoader
-from tap_ixc.streams import ClienteStream, ContratoStream, TituloStream
+from tap_ixc.streams import STREAM_REGISTRY
 from tap_ixc.streams.base import Stream
 
 log = structlog.get_logger()
@@ -75,11 +75,8 @@ class IXCTap:
     Streams disponíveis por padrão: clientes, contratos, titulos.
     """
 
-    STREAMS: list[type[Stream]] = [
-        ClienteStream,
-        ContratoStream,
-        TituloStream,
-    ]
+    # Fonte única: o registry. Adicionar stream lá reflete aqui automaticamente.
+    STREAMS: list[type[Stream]] = list(STREAM_REGISTRY.values())
 
     def __init__(self, config: ApiConfig) -> None:
         self._config = config

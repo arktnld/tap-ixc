@@ -37,6 +37,18 @@ POOL = "ixc_api"
 STAGING_DIR = "/tmp/etl-staging"
 
 
+def _emit_asset_meta(asset, extra: dict) -> None:
+    """Anexa metadata ao evento do Asset (aparece no card da UI). Não-fatal."""
+    try:
+        try:  # Airflow 3.x
+            from airflow.sdk import get_current_context
+        except ImportError:  # Airflow 2.x
+            from airflow.operators.python import get_current_context
+        get_current_context()["outlet_events"][asset].extra = extra
+    except Exception:
+        pass
+
+
 def _stream_group(client_name: str, stream: str):
     """Cadeia extract>>load>>verify para um stream; verify produz o Asset."""
     asset = Asset(f"ixc://{client_name}/{stream}")
@@ -60,10 +72,17 @@ def _stream_group(client_name: str, stream: str):
         def verify(ex: dict, ld: dict) -> dict:
             from tap_ixc import stages
             if ex["empty"]:
+                _emit_asset_meta(asset, {"records_loaded": 0, "status": "empty"})
                 return {"stream": ex["stream"], "ok": True, "records_loaded": 0}
-            return stages.verify(client_name, ex["stream"],
-                                extracted=ex["records_extracted"],
-                                loaded=ld["records_loaded"], new_cursor=ex["new_cursor"])
+            result = stages.verify(client_name, ex["stream"],
+                                  extracted=ex["records_extracted"],
+                                  loaded=ld["records_loaded"], new_cursor=ex["new_cursor"])
+            _emit_asset_meta(asset, {
+                "records_loaded": ld["records_loaded"],
+                "records_extracted": ex["records_extracted"],
+                "status": "success",
+            })
+            return result
 
         ex = extract()
         ld = load(ex)

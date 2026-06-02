@@ -75,6 +75,10 @@ def ixc_sync():
 ixc_sync()
 ```
 
+O `verify` também anexa **metadata** ao evento do Asset (`records_loaded`,
+`status`) via `outlet_events` — aparece no card do Asset na UI (quantos registros
+na última materialização). Veja `examples/airflow_dag.py`.
+
 **Scheduling data-aware**: um DAG a jusante dispara sozinho quando a tabela atualiza:
 
 ```python

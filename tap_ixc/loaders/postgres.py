@@ -57,30 +57,46 @@ class PostgresLoader:
         self._strategy = strategy
         self._pk_column = validate_identifier(pk_column, "pk_column")
 
-    def load(self) -> int:
-        """Carrega tabela DuckDB para Postgres. Retorna count de registros."""
+    @property
+    def _stg(self) -> str:
+        return f'pg."{self._schema}"."__stg_{self._table}"'
+
+    @property
+    def _qualified(self) -> str:
+        return f'pg."{self._schema}"."{self._table}"'
+
+    def stage(self) -> int:
+        """Empurra a tabela DuckDB local para a staging compartilhada no Postgres
+        (`__stg_<table>`). Roda no worker que tem o DuckDB (o do EXTRACT). Retorna count.
+        """
         conn = duckdb.connect(self._duckdb_path)
         try:
             conn.execute("INSTALL postgres; LOAD postgres;")
             conn.execute("SET pg_null_byte_replacement='';")
             conn.execute(
-                f"ATTACH '{self._pg_dsn}' AS pg "
-                f"(TYPE postgres, SCHEMA '{self._schema}')"
+                f"ATTACH '{self._pg_dsn}' AS pg (TYPE postgres, SCHEMA '{self._schema}')"
             )
+            conn.execute(f"CREATE OR REPLACE TABLE {self._stg} AS SELECT * FROM {self._table}")
+            count: int = conn.execute(f"SELECT count(*) FROM {self._stg}").fetchone()[0]  # type: ignore[index]
+            conn.execute("DETACH pg")
+        finally:
+            conn.close()
+        log.info("postgres.staged", table=self._table, schema=self._schema, records=count)
+        return count
 
-            qualified = f'pg."{self._schema}"."{self._table}"'
-            stg_remote = f'pg."{self._schema}"."__stg_{self._table}"'
-
-            # Cria tabela de staging remota no Postgres
+    def swap(self) -> int:
+        """Troca a staging do Postgres (`__stg_<table>`) para a tabela final, atômico.
+        Só fala com o Postgres (DuckDB em memória) → roda em QUALQUER worker. Retorna count.
+        """
+        conn = duckdb.connect()
+        try:
+            conn.execute("INSTALL postgres; LOAD postgres;")
             conn.execute(
-                f"CREATE OR REPLACE TABLE {stg_remote} AS "
-                f"SELECT * FROM {self._table}"
+                f"ATTACH '{self._pg_dsn}' AS pg (TYPE postgres, SCHEMA '{self._schema}')"
             )
-            count: int = conn.execute(
-                f"SELECT count(*) FROM {stg_remote}"
-            ).fetchone()[0]  # type: ignore[index]
+            qualified, stg_remote = self._qualified, self._stg
+            count: int = conn.execute(f"SELECT count(*) FROM {stg_remote}").fetchone()[0]  # type: ignore[index]
 
-            # Verifica se a tabela destino existe tentando um SELECT
             try:
                 conn.execute(f"SELECT 1 FROM {qualified} LIMIT 0")
                 table_exists = True
@@ -90,41 +106,25 @@ class PostgresLoader:
             try:
                 conn.execute("BEGIN;")
                 if self._strategy == "full" or not table_exists:
-                    # Full ou primeiro run de delta: cria do zero
                     conn.execute(f"DROP TABLE IF EXISTS {qualified}")
-                    conn.execute(
-                        f"CREATE TABLE {qualified} AS SELECT * FROM {stg_remote}"
-                    )
-                else:  # delta com tabela existente — evolui schema e insere por nome
+                    conn.execute(f"CREATE TABLE {qualified} AS SELECT * FROM {stg_remote}")
+                else:  # delta — evolui schema (da própria staging) e insere por nome
                     target_cols = {
-                        d[0]
-                        for d in conn.execute(
-                            f"SELECT * FROM {qualified} LIMIT 0"
-                        ).description
+                        d[0] for d in conn.execute(f"SELECT * FROM {qualified} LIMIT 0").description
                     }
                     stg_schema = {
-                        r[0]: r[1]
-                        for r in conn.execute(f"DESCRIBE {self._table}").fetchall()
+                        r[0]: r[1] for r in conn.execute(f"DESCRIBE {stg_remote}").fetchall()
                     }
-                    # colunas novas na origem → adiciona no destino (não perde dado nem quebra)
                     for col in _column_plan(target_cols, list(stg_schema)):
                         pgtype = _pg_type(stg_schema[col])
-                        conn.execute(
-                            f'ALTER TABLE {qualified} ADD COLUMN IF NOT EXISTS "{col}" {pgtype}'
-                        )
-                        log.warning(
-                            "postgres.schema_evolved",
-                            table=self._table, column=col, type=pgtype,
-                        )
+                        conn.execute(f'ALTER TABLE {qualified} ADD COLUMN IF NOT EXISTS "{col}" {pgtype}')
+                        log.warning("postgres.schema_evolved", table=self._table, column=col, type=pgtype)
                     cols = ", ".join(f'"{c}"' for c in stg_schema)
                     conn.execute(
-                        f"""DELETE FROM {qualified} AS tgt
-                            USING {stg_remote} AS src
+                        f"""DELETE FROM {qualified} AS tgt USING {stg_remote} AS src
                             WHERE tgt."{self._pk_column}" = src."{self._pk_column}";"""
                     )
-                    conn.execute(
-                        f"INSERT INTO {qualified} ({cols}) SELECT {cols} FROM {stg_remote}"
-                    )
+                    conn.execute(f"INSERT INTO {qualified} ({cols}) SELECT {cols} FROM {stg_remote}")
                 conn.execute("COMMIT;")
             except Exception:
                 try:
@@ -138,15 +138,15 @@ class PostgresLoader:
                 except Exception:
                     pass
                 conn.execute("DETACH pg")
-
         finally:
             conn.close()
-
         log.info(
-            "postgres.loaded",
-            table=self._table,
-            schema=self._schema,
-            strategy=self._strategy,
-            records=count,
+            "postgres.loaded", table=self._table, schema=self._schema,
+            strategy=self._strategy, records=count,
         )
         return count
+
+    def load(self) -> int:
+        """stage + swap num passo só (usado por runner.run / cron — staging local)."""
+        self.stage()
+        return self.swap()

@@ -22,49 +22,75 @@ O cron detecta falha pelo exit code `!= 0`.
 
 ## Airflow
 
-A lib não depende de Airflow — a integração é via `runner.run()`, que retorna
-`list[TapResult]` (você levanta em falha) e nunca escreve em stdout. Use a
-**TaskFlow API** (Airflow 2.x e 3.x) com **uma task por stream**, para retry e
-paralelismo isolados.
+Há **duas formas**, dependendo de quem orquestra:
+
+### Airflow-native — stages como tasks (recomendado)
+
+O Airflow é o orquestrador: cada stream vira a cadeia **`extract >> load >> verify`**.
+A lib expõe os stages em `tap_ixc.stages`. O handoff entre tasks é a **staging
+compartilhada no Postgres** (`__stg_<table>`), então extract e load podem rodar em
+**workers diferentes** (Celery/Kubernetes). Retry e estado são por stage.
 
 ```python
-import os
-from datetime import timedelta
 import pendulum
-
-try:                                    # Airflow 3.x
-    from airflow.sdk import dag, task
-except ImportError:                     # Airflow 2.x
-    from airflow.decorators import dag, task
+try:                                          # Airflow 3.x
+    from airflow.sdk import dag, task, task_group
+except ImportError:                           # Airflow 2.x
+    from airflow.decorators import dag, task, task_group
 
 CLIENT = "minha-empresa"
-STREAMS = ["clientes", "contratos", "titulos"]
 
-@dag(
-    schedule="0 8 * * *",
-    start_date=pendulum.datetime(2026, 1, 1, tz="America/Sao_Paulo"),
-    catchup=False,                      # sempre o dado de hoje
-    max_active_runs=1,                  # nunca 2 cargas simultâneas
-    default_args={"retries": 3, "retry_delay": timedelta(minutes=10),
-                  "execution_timeout": timedelta(hours=2)},
-    tags=["ixc", "etl"],
-)
+@dag(schedule="7 8 * * *", start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
+     catchup=False, max_active_runs=1, tags=["ixc", "etl"])
 def ixc_sync():
     @task
-    def sync_stream(stream: str) -> dict:
-        from tap_ixc.runner import run
-        # staging isolado por stream (DuckDB é single-writer → tasks paralelas
-        # não podem compartilhar o mesmo arquivo)
-        results = run(CLIENT, [stream],
-                      duckdb_path=f"/tmp/etl-staging/{CLIENT}-{stream}.duckdb")
-        r = results[0]
-        if r.status == "failed":
-            raise RuntimeError(f"stream {r.stream} falhou: {r.error}")
-        return {"stream": r.stream, "records_loaded": r.records_loaded}
+    def list_streams():
+        from tap_ixc.config.settings import get_client
+        return [ep.name for ep in get_client(CLIENT).endpoints]
 
-    sync_stream.expand(stream=STREAMS)   # dynamic mapping: 1 task por stream
+    @task_group(group_id="stream")
+    def stream_etl(stream: str):
+        @task(pool="ixc_api")
+        def extract(stream):
+            from tap_ixc import stages
+            return stages.extract(CLIENT, stream,
+                                  duckdb_path=f"/tmp/etl-staging/{CLIENT}-{stream}.duckdb")
+        @task
+        def load(ex):
+            from tap_ixc import stages
+            return {"stream": ex["stream"], "records_loaded": 0} if ex["empty"] \
+                   else stages.load(CLIENT, ex["stream"])
+        @task
+        def verify(ex, ld):
+            from tap_ixc import stages
+            if ex["empty"]:
+                return {"ok": True}
+            return stages.verify(CLIENT, ex["stream"], extracted=ex["records_extracted"],
+                                 loaded=ld["records_loaded"], new_cursor=ex["new_cursor"])
+        ex = extract(stream); ld = load(ex); verify(ex, ld)
+
+    stream_etl.expand(stream=list_streams())   # mapped task group: cadeia por stream
 
 ixc_sync()
+```
+
+O cursor incremental só avança no `verify` (após sucesso). Exemplo completo, com
+factory multi-cliente, em
+[`examples/airflow_dag.py`](https://github.com/arktnld/tap-ixc/blob/master/examples/airflow_dag.py).
+
+### Lib-orquestra — uma task por stream (mais simples)
+
+Se preferir o pipeline inteiro numa task (staging local, sem Postgres compartilhado;
+mesmo código de `cron`), use `runner.run()`:
+
+```python
+@task(pool="ixc_api")
+def sync_stream(stream: str):
+    from tap_ixc.runner import run
+    r = run(CLIENT, [stream], duckdb_path=f"/tmp/etl-staging/{CLIENT}-{stream}.duckdb")[0]
+    if r.status == "failed":
+        raise RuntimeError(r.error)
+    return {"stream": r.stream, "records_loaded": r.records_loaded}
 ```
 
 !!! note "Compatibilidade"

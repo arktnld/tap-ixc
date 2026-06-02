@@ -1,32 +1,34 @@
-"""DAG factory Airflow-native IXC → PostgreSQL — stages como tasks.
+"""DAG factory Airflow-native IXC → PostgreSQL — stages + Assets.
 
-O Airflow É o orquestrador: cada stream vira a cadeia
+O Airflow É o orquestrador. Cada stream vira a cadeia
 
     extract >> load >> verify
 
-- **extract**: API → staging compartilhada no Postgres (`__stg_<table>`)
-- **load**:    `__stg_` → tabela final (swap atômico) — roda em qualquer worker
-- **verify**:  confere contagem e avança o cursor incremental (só após sucesso)
+e o `verify` **produz um Asset** (a tabela destino). Com isso:
 
-Retry, estado e observabilidade por stage são do Airflow. A staging viver no
-Postgres (não em disco local) permite extract e load em workers diferentes
-(Airflow distribuído: Celery/Kubernetes).
+- **Linhagem** na aba Assets da UI.
+- **Scheduling data-aware**: um DAG a jusante (dbt, relatório) declara
+  `schedule=[Asset("ixc://<cliente>/<stream>")]` e dispara automaticamente
+  quando aquela tabela é atualizada — sem cron acoplado.
 
-Padrão multi-tenant: um DAG por cliente do `clients.yml`. Adiciona cliente → novo
-DAG; adiciona endpoint → novo stream mapeado (em runtime, sem editar nada aqui).
+Handoff entre stages = staging compartilhada no Postgres (`__stg_<table>`), então
+extract e load podem rodar em workers diferentes (Airflow distribuído).
 
-Compatível com Airflow 2.x e 3.x. Coloque no `dags_folder`.
-Pré-requisito: `pip install git+https://github.com/arktnld/tap-ixc.git`,
-`clients.yml` acessível, secrets via env/Airflow Variables, e o pool `ixc_api`
-(`airflow pools set ixc_api 2 "..."`).
+Multi-tenant: um DAG por cliente do `clients.yml`. Streams enumerados no parse
+(Assets precisam ser estáticos) — adicionar endpoint dispara um reparse.
+
+Compat Airflow 2.x (Datasets) e 3.x (Assets). Coloque no `dags_folder`.
+Pré-req: `pip install git+https://github.com/arktnld/tap-ixc.git`, `clients.yml`
+acessível, secrets via env/Variables, e o pool: `airflow pools set ixc_api 2 "..."`.
 """
 from __future__ import annotations
 
 import pendulum
 
 try:  # Airflow 3.x
-    from airflow.sdk import dag, task, task_group
+    from airflow.sdk import Asset, dag, task, task_group
 except ImportError:  # Airflow 2.x
+    from airflow.datasets import Dataset as Asset
     from airflow.decorators import dag, task, task_group
 
 from tap_ixc.config.settings import load_clients
@@ -35,62 +37,63 @@ POOL = "ixc_api"
 STAGING_DIR = "/tmp/etl-staging"
 
 
+def _stream_group(client_name: str, stream: str):
+    """Cadeia extract>>load>>verify para um stream; verify produz o Asset."""
+    asset = Asset(f"ixc://{client_name}/{stream}")
+
+    @task_group(group_id=stream)
+    def etl():
+        @task(pool=POOL)
+        def extract() -> dict:
+            from tap_ixc import stages
+            return stages.extract(client_name, stream,
+                                  duckdb_path=f"{STAGING_DIR}/{client_name}-{stream}.duckdb")
+
+        @task
+        def load(ex: dict) -> dict:
+            from tap_ixc import stages
+            if ex["empty"]:
+                return {"stream": ex["stream"], "records_loaded": 0}
+            return stages.load(client_name, ex["stream"])
+
+        @task(outlets=[asset])
+        def verify(ex: dict, ld: dict) -> dict:
+            from tap_ixc import stages
+            if ex["empty"]:
+                return {"stream": ex["stream"], "ok": True, "records_loaded": 0}
+            return stages.verify(client_name, ex["stream"],
+                                extracted=ex["records_extracted"],
+                                loaded=ld["records_loaded"], new_cursor=ex["new_cursor"])
+
+        ex = extract()
+        ld = load(ex)
+        verify(ex, ld)
+
+    return etl
+
+
 def build_ixc_dag(client_name: str):
+    cfg = load_clients()[client_name]
+    streams = [ep.name for ep in cfg.endpoints]
     minute = sum(ord(c) for c in client_name) % 60   # jitter por cliente
 
     @dag(
         dag_id=f"ixc_sync_{client_name}",
-        description=f"IXC {client_name} — extract>>load>>verify por stream",
+        description=f"IXC {client_name} — extract>>load>>verify por stream, produz Assets",
         schedule=f"{minute} 8 * * *",
         start_date=pendulum.datetime(2026, 1, 1, tz="America/Sao_Paulo"),
         catchup=False,
         max_active_runs=1,
         default_args={"owner": "data", "retries": 3, "retry_exponential_backoff": True},
-        params={"streams": None},
         tags=["ixc", "etl", client_name],
     )
     def _factory():
-        @task
-        def list_streams(**ctx) -> list[str]:
-            from tap_ixc.config.settings import get_client
-            configured = [ep.name for ep in get_client(client_name).endpoints]
-            chosen = (ctx.get("params") or {}).get("streams")
-            return [s for s in chosen if s in configured] if chosen else configured
-
-        @task_group(group_id="stream")
-        def stream_etl(stream: str):
-            @task(pool=POOL)                 # cap de concorrência na API IXC
-            def extract(stream: str) -> dict:
-                from tap_ixc import stages
-                return stages.extract(client_name, stream,
-                                      duckdb_path=f"{STAGING_DIR}/{client_name}-{stream}.duckdb")
-
-            @task
-            def load(ex: dict) -> dict:
-                from tap_ixc import stages
-                if ex["empty"]:
-                    return {"stream": ex["stream"], "records_loaded": 0}
-                return stages.load(client_name, ex["stream"])
-
-            @task
-            def verify(ex: dict, ld: dict) -> dict:
-                from tap_ixc import stages
-                if ex["empty"]:
-                    return {"stream": ex["stream"], "ok": True, "records_loaded": 0}
-                return stages.verify(client_name, ex["stream"],
-                                    extracted=ex["records_extracted"],
-                                    loaded=ld["records_loaded"],
-                                    new_cursor=ex["new_cursor"])
-
-            ex = extract(stream)
-            ld = load(ex)
-            verify(ex, ld)
-
-        stream_etl.expand(stream=list_streams())
+        for stream in streams:
+            _stream_group(client_name, stream)()
 
     return _factory()
 
 
-# Um DAG por cliente (parse-time barato: só enumera clientes).
+# Um DAG por cliente configurado.
 for _client in load_clients():
     globals()[f"ixc_sync_{_client}"] = build_ixc_dag(_client)

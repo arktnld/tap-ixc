@@ -26,52 +26,61 @@ Há **duas formas**, dependendo de quem orquestra:
 
 ### Airflow-native — stages como tasks (recomendado)
 
-O Airflow é o orquestrador: cada stream vira a cadeia **`extract >> load >> verify`**.
-A lib expõe os stages em `tap_ixc.stages`. O handoff entre tasks é a **staging
-compartilhada no Postgres** (`__stg_<table>`), então extract e load podem rodar em
-**workers diferentes** (Celery/Kubernetes). Retry e estado são por stage.
+O Airflow é o orquestrador: cada stream vira a cadeia **`extract >> load >> verify`**,
+e o `verify` **produz um Asset** (a tabela destino). A lib expõe os stages em
+`tap_ixc.stages`. O handoff entre tasks é a **staging compartilhada no Postgres**
+(`__stg_<table>`), então extract e load podem rodar em **workers diferentes**
+(Celery/Kubernetes). Retry e estado são por stage.
 
 ```python
 import pendulum
 try:                                          # Airflow 3.x
-    from airflow.sdk import dag, task, task_group
-except ImportError:                           # Airflow 2.x
+    from airflow.sdk import Asset, dag, task, task_group
+except ImportError:                           # Airflow 2.x (Datasets)
+    from airflow.datasets import Dataset as Asset
     from airflow.decorators import dag, task, task_group
+
+from tap_ixc.config.settings import load_clients
 
 CLIENT = "minha-empresa"
 
 @dag(schedule="7 8 * * *", start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
      catchup=False, max_active_runs=1, tags=["ixc", "etl"])
 def ixc_sync():
-    @task
-    def list_streams():
-        from tap_ixc.config.settings import get_client
-        return [ep.name for ep in get_client(CLIENT).endpoints]
+    for stream in [ep.name for ep in load_clients()[CLIENT].endpoints]:
 
-    @task_group(group_id="stream")
-    def stream_etl(stream: str):
-        @task(pool="ixc_api")
-        def extract(stream):
-            from tap_ixc import stages
-            return stages.extract(CLIENT, stream,
-                                  duckdb_path=f"/tmp/etl-staging/{CLIENT}-{stream}.duckdb")
-        @task
-        def load(ex):
-            from tap_ixc import stages
-            return {"stream": ex["stream"], "records_loaded": 0} if ex["empty"] \
-                   else stages.load(CLIENT, ex["stream"])
-        @task
-        def verify(ex, ld):
-            from tap_ixc import stages
-            if ex["empty"]:
-                return {"ok": True}
-            return stages.verify(CLIENT, ex["stream"], extracted=ex["records_extracted"],
-                                 loaded=ld["records_loaded"], new_cursor=ex["new_cursor"])
-        ex = extract(stream); ld = load(ex); verify(ex, ld)
+        @task_group(group_id=stream)
+        def stream_etl(stream=stream):
+            @task(pool="ixc_api")
+            def extract():
+                from tap_ixc import stages
+                return stages.extract(CLIENT, stream,
+                                      duckdb_path=f"/tmp/etl-staging/{CLIENT}-{stream}.duckdb")
+            @task
+            def load(ex):
+                from tap_ixc import stages
+                return {"stream": ex["stream"], "records_loaded": 0} if ex["empty"] \
+                       else stages.load(CLIENT, ex["stream"])
+            @task(outlets=[Asset(f"ixc://{CLIENT}/{stream}")])   # ← produz o Asset
+            def verify(ex, ld):
+                from tap_ixc import stages
+                if ex["empty"]:
+                    return {"ok": True}
+                return stages.verify(CLIENT, ex["stream"], extracted=ex["records_extracted"],
+                                     loaded=ld["records_loaded"], new_cursor=ex["new_cursor"])
+            ex = extract(); ld = load(ex); verify(ex, ld)
 
-    stream_etl.expand(stream=list_streams())   # mapped task group: cadeia por stream
+        stream_etl()
 
 ixc_sync()
+```
+
+**Scheduling data-aware**: um DAG a jusante dispara sozinho quando a tabela atualiza:
+
+```python
+@dag(schedule=[Asset("ixc://minha-empresa/clientes")], catchup=False)   # sem cron
+def transforma_clientes():
+    ...   # roda quando o stream clientes termina
 ```
 
 O cursor incremental só avança no `verify` (após sucesso). Exemplo completo, com

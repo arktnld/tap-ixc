@@ -25,11 +25,27 @@ from __future__ import annotations
 
 import pendulum
 
+from datetime import timedelta
+
 try:  # Airflow 3.x
-    from airflow.sdk import Asset, dag, task, task_group
-except ImportError:  # Airflow 2.x
+    from airflow.sdk import (
+        Asset, DeadlineAlert, DeadlineReference, SyncCallback, dag, task, task_group,
+    )
+    _DEADLINE = DeadlineAlert(                 # SLA: avisa se não terminar em 30min
+        reference=DeadlineReference.DAGRUN_QUEUED_AT,
+        interval=timedelta(minutes=30),
+        callback=SyncCallback(
+            "tap_ixc.airflow_hooks.deadline_missed",
+            kwargs={
+                "text": "⏰ tap-ixc {{ dag_run.dag_id }} passou de 30min sem terminar",
+                "webhook_url": "{{ var.value.get('ixc_alert_webhook', '') }}",
+            },
+        ),
+    )
+except ImportError:  # Airflow 2.x (sem DeadlineAlert)
     from airflow.datasets import Dataset as Asset
     from airflow.decorators import dag, task, task_group
+    _DEADLINE = None
 
 from airflow.models.param import Param
 
@@ -132,6 +148,7 @@ def build_ixc_dag(client_name: str):
         catchup=False,
         max_active_runs=1,
         default_args={"owner": "data", "retries": 3, "retry_exponential_backoff": True},
+        deadline=_DEADLINE,                  # SLA: avisa se passar de 30min
         on_failure_callback=_alert,          # Airflow alerta em falha (cron é mudo)
         params={f"run_{s}": Param(True, type="boolean", title=f"Rodar {s}") for s in streams},
         tags=["ixc", "etl", client_name],

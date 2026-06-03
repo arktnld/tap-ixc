@@ -39,6 +39,25 @@ POOL = "ixc_api"
 STAGING_DIR = "/tmp/etl-staging"
 
 
+def _alert(context) -> None:
+    """on_failure_callback: loga e (opcional) posta num webhook — Airflow avisa
+    quando quebra (cron fica mudo). URL na Airflow Variable `ixc_alert_webhook`."""
+    import logging
+    ti = context.get("task_instance")
+    dag = context.get("dag")
+    msg = (f"🚨 FALHA tap-ixc | dag={getattr(dag, 'dag_id', '?')} "
+           f"task={getattr(ti, 'task_id', '?')} run={context.get('run_id')}")
+    logging.getLogger("airflow.task").error(msg)
+    try:
+        from airflow.sdk import Variable
+        url = Variable.get("ixc_alert_webhook", default_var=None)
+        if url:
+            import httpx
+            httpx.post(url, json={"text": msg}, timeout=10)
+    except Exception:
+        pass
+
+
 def _emit_asset_meta(asset, extra: dict) -> None:
     """Anexa metadata ao evento do Asset (aparece no card da UI). Não-fatal."""
     try:
@@ -57,9 +76,10 @@ def _stream_group(client_name: str, stream: str):
 
     @task_group(group_id=stream)
     def etl():
-        @task.short_circuit
+        @task.short_circuit(ignore_downstream_trigger_rules=False)
         def gate(**context) -> bool:
             # interruptor por stream (param run_<stream> no trigger manual); default True.
+            # ignore_downstream_trigger_rules=False → o summary (all_done) ainda roda.
             return bool((context.get("params") or {}).get(f"run_{stream}", True))
 
         @task(pool=POOL)
@@ -112,12 +132,30 @@ def build_ixc_dag(client_name: str):
         catchup=False,
         max_active_runs=1,
         default_args={"owner": "data", "retries": 3, "retry_exponential_backoff": True},
+        on_failure_callback=_alert,          # Airflow alerta em falha (cron é mudo)
         params={f"run_{s}": Param(True, type="boolean", title=f"Rodar {s}") for s in streams},
         tags=["ixc", "etl", client_name],
     )
     def _factory():
+        @task(trigger_rule="all_done")        # roda mesmo com stream falho/pulado
+        def summary(**context) -> dict:
+            ti = context["ti"]
+            total, ok, sem_dado = 0, [], []
+            for s in streams:
+                r = ti.xcom_pull(task_ids=f"{s}.verify")
+                if r and r.get("ok"):
+                    total += r.get("records_loaded", 0)
+                    ok.append(s)
+                else:
+                    sem_dado.append(s)
+            import logging
+            logging.getLogger("airflow.task").info(
+                f"SUMMARY {client_name}: {total} registros · ok={ok} · sem-dado={sem_dado}")
+            return {"total_records": total, "ok": ok, "skipped_or_failed": sem_dado}
+
+        s = summary()
         for stream in streams:
-            _stream_group(client_name, stream)()
+            _stream_group(client_name, stream)() >> s
 
     return _factory()
 

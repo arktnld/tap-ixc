@@ -98,3 +98,15 @@ class TestVerify:
         ):
             stages.verify("c", "clientes", extracted=10, loaded=10, new_cursor=None)
         mock_cp.mark_done.assert_not_called()
+
+
+class TestDropStaging:
+    def test_calls_loader_drop_staging(self):
+        from unittest.mock import MagicMock
+        mock_pg = MagicMock()
+        with (
+            patch("tap_ixc.stages.get_client", return_value=_cfg()),
+            patch("tap_ixc.stages.PostgresLoader", return_value=mock_pg),
+        ):
+            stages.drop_staging("c", "clientes")
+        mock_pg.drop_staging.assert_called_once()

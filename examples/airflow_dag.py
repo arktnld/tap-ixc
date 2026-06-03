@@ -29,7 +29,7 @@ from datetime import timedelta
 
 try:  # Airflow 3.x
     from airflow.sdk import (
-        Asset, DeadlineAlert, DeadlineReference, SyncCallback, dag, task, task_group,
+        Asset, DeadlineAlert, DeadlineReference, SyncCallback, dag, task, task_group, teardown,
     )
     _DEADLINE = DeadlineAlert(                 # SLA: avisa se não terminar em 30min
         reference=DeadlineReference.DAGRUN_QUEUED_AT,
@@ -44,7 +44,7 @@ try:  # Airflow 3.x
     )
 except ImportError:  # Airflow 2.x (sem DeadlineAlert)
     from airflow.datasets import Dataset as Asset
-    from airflow.decorators import dag, task, task_group
+    from airflow.decorators import dag, task, task_group, teardown
     _DEADLINE = None
 
 from airflow.models.param import Param
@@ -127,10 +127,17 @@ def _stream_group(client_name: str, stream: str):
             })
             return result
 
+        @teardown
+        def cleanup() -> None:
+            # roda SEMPRE (mesmo se load falhar) — limpa a staging __stg_ órfã.
+            from tap_ixc import stages
+            stages.drop_staging(client_name, stream)
+
         ex = extract()
         gate() >> ex          # interruptor: pula o stream se desmarcado no trigger
         ld = load(ex)
-        verify(ex, ld)
+        v = verify(ex, ld)
+        v >> cleanup()        # teardown: limpeza garantida
 
     return etl
 

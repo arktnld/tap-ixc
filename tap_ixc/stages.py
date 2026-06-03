@@ -118,6 +118,14 @@ def load(client_name: str, stream: str, *, duckdb_path: str = "/tmp/_swap.duckdb
     return {"stream": stream, "records_loaded": loaded}
 
 
+def drop_staging(client_name: str, stream: str) -> None:
+    """Remove a staging `__stg_<table>` no Postgres (teardown — limpa sempre)."""
+    cfg = get_client(client_name)
+    entry = _entry(cfg, stream)
+    _pg(cfg, entry, "/tmp/_teardown.duckdb").drop_staging()
+    log.info("stage.staging_dropped", stream=stream)
+
+
 def verify(client_name: str, stream: str, *, extracted: int, loaded: int,
            new_cursor: str | None = None) -> dict[str, Any]:
     """Confere a contagem e avança o cursor incremental (só após sucesso)."""

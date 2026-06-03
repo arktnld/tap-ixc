@@ -65,6 +65,23 @@ class PostgresLoader:
     def _qualified(self) -> str:
         return f'pg."{self._schema}"."{self._table}"'
 
+    def drop_staging(self) -> None:
+        """Remove a staging `__stg_<table>` do Postgres (idempotente).
+
+        Para teardown: garante limpeza mesmo se o LOAD falhar antes do swap.
+        Só fala com o Postgres → roda em qualquer worker.
+        """
+        conn = duckdb.connect()
+        try:
+            conn.execute("INSTALL postgres; LOAD postgres;")
+            conn.execute(
+                f"ATTACH '{self._pg_dsn}' AS pg (TYPE postgres, SCHEMA '{self._schema}')"
+            )
+            conn.execute(f"DROP TABLE IF EXISTS {self._stg}")
+            conn.execute("DETACH pg")
+        finally:
+            conn.close()
+
     def stage(self) -> int:
         """Empurra a tabela DuckDB local para a staging compartilhada no Postgres
         (`__stg_<table>`). Roda no worker que tem o DuckDB (o do EXTRACT). Retorna count.

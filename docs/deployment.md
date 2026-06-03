@@ -79,13 +79,26 @@ O `verify` também anexa **metadata** ao evento do Asset (`records_loaded`,
 `status`) via `outlet_events` — aparece no card do Asset na UI (quantos registros
 na última materialização). Veja `examples/airflow_dag.py`.
 
-**Scheduling data-aware**: um DAG a jusante dispara sozinho quando a tabela atualiza:
+**Scheduling data-aware**: um DAG a jusante dispara sozinho quando as tabelas
+atualizam. Use **asset expressions** (`&` = todas, `|` = qualquer):
 
 ```python
-@dag(schedule=[Asset("ixc://minha-empresa/clientes")], catchup=False)   # sem cron
-def transforma_clientes():
-    ...   # roda quando o stream clientes termina
+import functools, operator
+from airflow.sdk import Asset, dag, task
+
+CLIENT = "minha-empresa"
+assets = [Asset(f"ixc://{CLIENT}/{s}") for s in ["clientes", "contratos", "titulos"]]
+
+@dag(schedule=functools.reduce(operator.and_, assets), catchup=False)   # sem cron
+def ixc_transform():
+    @task
+    def build_metrics():
+        ...   # roda quando os 3 streams terminam no mesmo ciclo
+    build_metrics()
 ```
+
+Exemplo completo em
+[`examples/airflow_transform_dag.py`](https://github.com/arktnld/tap-ixc/blob/master/examples/airflow_transform_dag.py).
 
 O cursor incremental só avança no `verify` (após sucesso). Exemplo completo, com
 factory multi-cliente, em

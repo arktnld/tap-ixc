@@ -31,6 +31,8 @@ except ImportError:  # Airflow 2.x
     from airflow.datasets import Dataset as Asset
     from airflow.decorators import dag, task, task_group
 
+from airflow.models.param import Param
+
 from tap_ixc.config.settings import load_clients
 
 POOL = "ixc_api"
@@ -55,6 +57,11 @@ def _stream_group(client_name: str, stream: str):
 
     @task_group(group_id=stream)
     def etl():
+        @task.short_circuit
+        def gate(**context) -> bool:
+            # interruptor por stream (param run_<stream> no trigger manual); default True.
+            return bool((context.get("params") or {}).get(f"run_{stream}", True))
+
         @task(pool=POOL)
         def extract() -> dict:
             from tap_ixc import stages
@@ -85,6 +92,7 @@ def _stream_group(client_name: str, stream: str):
             return result
 
         ex = extract()
+        gate() >> ex          # interruptor: pula o stream se desmarcado no trigger
         ld = load(ex)
         verify(ex, ld)
 
@@ -104,6 +112,7 @@ def build_ixc_dag(client_name: str):
         catchup=False,
         max_active_runs=1,
         default_args={"owner": "data", "retries": 3, "retry_exponential_backoff": True},
+        params={f"run_{s}": Param(True, type="boolean", title=f"Rodar {s}") for s in streams},
         tags=["ixc", "etl", client_name],
     )
     def _factory():
